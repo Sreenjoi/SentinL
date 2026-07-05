@@ -1,0 +1,27 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <g stroke="#ff6f61" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Antennae Lines -->
+    <path d="M 23 26 L 16 12" />
+    <path d="M 41 26 L 48 12" />
+
+    <!-- Antennae Blobs -->
+    <circle cx="16" cy="12" r="4" fill="#ff6f61" stroke="none" />
+    <circle cx="48" cy="12" r="4" fill="#ff6f61" stroke="none" />
+
+    <!-- Main Head -->
+    <rect x="14" y="26" width="36" height="24" rx="6" />
+
+    <!-- Left Ear -->
+    <path d="M 14 31 H 10 C 8.895 31 8 31.895 8 33 V 43 C 8 44.105 8.895 45 10 45 H 14" />
+    
+    <!-- Right Ear -->
+    <path d="M 50 31 H 54 C 55.105 31 56 31.895 56 33 V 43 C 56 44.105 55.105 45 54 45 H 50" />
+
+    <!-- Mouth -->
+    <path d="M 26 43 Q 32 48 38 43" />
+
+    <!-- Eyes (filled red) -->
+    <circle cx="24" cy="36" r="3" fill="#ff6f61" stroke="none" />
+    <circle cx="40" cy="36" r="3" fill="#ff6f61" stroke="none" />
+  </g>
+</svg>

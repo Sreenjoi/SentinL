@@ -1,0 +1,18 @@
+{
+  "scenario": "100_per_min",
+  "totalMessages": 100,
+  "locallyBypassed": 0,
+  "messagesSentToAi": 0,
+  "keywordFallbackMessages": 0,
+  "flaggedMessages": 0,
+  "deletedAttempts": 0,
+  "failedOperations": 0,
+  "averageLatencyMs": "26.13",
+  "p95LatencyMs": "49.54",
+  "p99LatencyMs": "50.00",
+  "maxQueueDepth": 100,
+  "estimatedAiCostUSD": "$0.0000",
+  "firestoreReads": 0,
+  "firestoreWrites": 0,
+  "estimatedTimeSeconds": "10.03"
+}

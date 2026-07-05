@@ -1,0 +1,1403 @@
+# SentinL Product Requirements Document
+
+Version: Current deployment PRD
+Last updated: 2026-07-02
+
+## 1. Product Summary
+
+SentinL is a Discord moderation bot and web dashboard for server owners and moderators. Its core purpose is to help communities moderate messages with AI, custom server rules, keyword fallback protection, logs, appeals, reports, analytics, and server management tools.
+
+The product is built around a simple promise:
+
+- Catch harmful messages that normal keyword bots miss.
+- Let each server define its own rules.
+- Keep moderation affordable by avoiding unnecessary AI calls.
+- Give moderators a dashboard where they can review, act, appeal, and improve decisions.
+
+SentinL is not only a filter. It is a moderation workflow product.
+
+### 1.1 SentinL in One Page
+
+SentinL is an AI-powered Discord moderation system made of two main parts:
+
+- A Discord bot that reads server messages, checks them against server rules, AI moderation logic, local safety filters, and keyword fallback.
+- A web dashboard where moderators configure rules, review flagged messages, take moderation actions, view reports/appeals, manage community tools, and understand server health.
+
+The problem SentinL solves:
+
+- Discord servers often need moderation when staff are offline.
+- Keyword-only bots miss sarcasm, passive aggression, transliterated abuse, and context-dependent toxicity.
+- Pure AI moderation can be expensive, slow, and unreliable during provider rate limits.
+- Moderators need a fair workflow for reviewing, correcting, appealing, and learning from decisions.
+
+SentinL's product approach:
+
+- Use cheap local checks first.
+- Use a primary AI model only when needed.
+- Use deeper AI checks only for risky or unclear cases.
+- Use keyword/local fallback when AI limits or provider outages happen.
+- Keep moderation decisions reviewable in the dashboard.
+- Let each server define its own moderation rules.
+- Keep Pro and Premium simple: same features, different server slot count.
+
+Main user-facing areas:
+
+- Dashboard overview and setup checklist
+- Moderation queue
+- User reports
+- Appeals
+- Repeat offenders
+- Moderation settings
+- Community DNA/custom rules
+- Keyword filters
+- AI rule recommendations
+- Leveling and XP
+- Reaction roles
+- Giveaways
+- YouTube/Twitch integrations
+- Chat summaries
+- Analytics and weekly digest
+- Health score/widgets
+- Pricing, checkout, subscriptions, and trials
+
+### 1.2 Source-of-Truth Product Rules
+
+These rules should be treated as higher priority than old UI copy, comments, or stale implementation notes:
+
+- Pro and Premium include the same feature set.
+- Premium / Pro 3 only adds up to 3 server slots.
+- `premium` is a legacy alias/fallback for `pro_3` behavior.
+- Free users still get core safety: limited AI checks plus keyword/local fallback.
+- A daily AI check is counted when any provider is called for moderation, whether the final result is safe or flagged.
+- Cloudflare/Qwen should be the primary moderation provider when `PRIMARY_AI_PROVIDER=cloudflare`.
+- Groq should be fallback/escalation when configured, not the normal path while Qwen is healthy.
+- Malformed AI output must never directly delete a message.
+- Dashboard moderation actions must verify server authorization before mutating Discord or Firestore state.
+- Appeals should be available for valid appealable cases and should not depend entirely on paid-only dashboard actions.
+
+### 1.3 Recent Implementation Notes
+
+As of the 2026-07-02 local audit:
+
+- TypeScript lint passes.
+- Production build passes.
+- Unit tests pass.
+- Smoke tests pass.
+- Moderation probes confirm safe long messages can bypass AI while nuanced hostile messages still route to AI/review.
+- Integration tests still need mock maintenance around the Cloudflare/Qwen provider switch and newer Firestore call chains. These are test-harness issues unless reproduced in production logs.
+
+## 2. Target Users
+
+### 2.1 Free Users
+
+Free users are small Discord servers, hobby communities, friend groups, gaming groups, and early adopters. They need basic protection and want to test whether SentinL works before paying.
+
+Free users get a limited daily AI moderation allowance and keyword fallback protection after the daily AI limit is reached.
+
+### 2.2 Pro Users
+
+Pro users are serious single-server owners, content creators, small brands, gaming communities, creator communities, school clubs, and growing communities.
+
+They need the full moderation suite for one server.
+
+### 2.3 Premium / Pro 3 Users
+
+Premium users are moderators or owners who manage multiple communities. Premium has the same feature access as Pro, but supports up to three servers.
+
+Important product rule:
+
+- Pro and Premium should have the same feature set.
+- The main difference is server count.
+- Pro supports 1 server.
+- Premium / Pro 3 supports 3 servers.
+
+## 3. Pricing and Limits
+
+### 3.1 Free Tier
+
+- Price: $0
+- Server slots: 1
+- Daily AI moderation checks per server: 300
+- After daily AI limit: fallback to local keyword/regex/heuristic moderation
+- Advanced paid features: locked unless a trial or beta grant is active
+
+### 3.2 Pro Tier
+
+- Price: $7.99 per 30-day access pass
+- Server slots: 1
+- Daily AI moderation checks per server: 2000
+- Unlocks the full SentinL feature set for one server
+
+### 3.3 Premium / Pro 3 Tier
+
+- Price: $19.99 per 30-day access pass
+- Server slots: 3
+- Daily AI moderation checks per server: 2000
+- Same feature set as Pro
+- Intended for users who moderate or own multiple servers
+
+### 3.4 Trials and Beta Grants
+
+SentinL can grant temporary Pro access through trial or admin/beta commands. Trial access should behave like Pro for features and AI limit purposes while the trial is active.
+
+### 3.5 AI Limit Accounting
+
+An AI moderation check counts when SentinL sends a message to an AI model for moderation. This count applies whether the message is eventually flagged or cleared.
+
+Rules:
+
+- All AI providers count toward the same daily server AI limit.
+- Cloudflare/Qwen calls count.
+- Groq fallback calls count.
+- Premium 70B escalation calls count.
+- Keyword fallback checks do not count as AI calls.
+- When the server daily AI limit is reached, SentinL must stop making AI moderation calls for that server until reset and fall back to keyword matching.
+
+### 3.6 Feature Inventory by Tier
+
+This table is the source of truth for pricing and upgrade copy. If UI copy conflicts with this table, update the UI copy.
+
+| Feature | Free | Pro | Premium / Pro 3 | Main app surface | Backend / bot involved |
+|---|---:|---:|---:|---|---|
+| Server slots | 1 | 1 | 3 | Pricing, Profile, Checkout | Entitlements, subscriptions |
+| Daily AI moderation checks | 300/server | 2000/server | 2000/server | Dashboard, usage/status commands | `discordBot.ts`, Firestore server counters |
+| Keyword/local fallback after AI limit | Yes | Yes | Yes | Bot behavior, log channel notices | `discordBot.ts` |
+| Mod queue review | Yes | Yes | Yes | Moderation queue | Firestore flagged messages, API auth |
+| Basic custom rules | Yes | Yes | Yes | Bot Settings / Community DNA | Firestore rules, moderation prompt |
+| Keyword pre-filter | Yes | Yes | Yes | Bot Settings / Community DNA | Firestore server config, bot local matching |
+| Reports | Yes | Yes | Yes | Reports tab | `server.ts`, Firestore reports |
+| Appeals for valid cases | Yes | Yes | Yes | Appeals tab, Discord DM/modal, `/appeal` | `server.ts`, `discordBot.ts`, Discord interactions |
+| Advanced dashboard actions: delete, warn, timeout | Locked/limited | Yes | Yes | Mod queue, reports | `server.ts`, Discord permissions |
+| Auto-delete for high-risk AI decisions | Locked | Yes | Yes | Moderation settings | `discordBot.ts`, Discord Manage Messages |
+| AI context reading toggle | Locked | Yes | Yes | Moderation settings | `discordBot.ts`, context fetch |
+| Cost-aware micro-context for nuanced messages | Yes when router requires it | Yes | Yes | Bot behavior | `discordBot.ts`, nuanced router |
+| Dual-model escalation | Locked | Yes | Yes | Moderation settings | `discordBot.ts`, provider routing |
+| Manual AI training feedback | Locked | Yes | Yes | Mod queue, analytics | Firestore training feedback |
+| Rule recommendations / Community DNA suggestions | Locked | Yes | Yes | Bot Settings / Community DNA | Recommendation job, Firestore |
+| Repeat offenders | Locked | Yes | Yes | Moderation / Offenders | Firestore flagged history |
+| Advanced analytics and export reports | Locked | Yes | Yes | Analytics | Firestore analytics, PDF export |
+| Weekly digest | Locked | Yes | Yes | Analytics / digest | Backend/bot scheduled report |
+| Health score widget customization | Locked | Yes | Yes | Health score | Firestore settings |
+| Leveling and XP configuration | Locked | Yes | Yes | Leveling | Bot XP tracking, Firestore |
+| Role rewards | Locked | Yes | Yes | Leveling | Discord role permissions |
+| Server leaderboard | Locked | Yes | Yes | Leveling | Firestore XP data |
+| Reaction roles | Up to 5 panels | Unlimited | Unlimited | Roles manager | Discord reactions/roles |
+| Giveaways | Locked | Yes | Yes | Giveaways | Bot giveaway scheduler/interactions |
+| YouTube/Twitch integrations | Locked or low limited | Yes | Yes | Integrations | Backend integration jobs |
+| Chat summaries | Small free allowance | Higher allowance | Higher allowance across linked servers | Summaries | Summary service, AI budget |
+| Custom commands | Locked | Yes | Yes | Bot Settings / Custom Commands | Discord command sync, backend |
+
+### 3.7 Tier Naming Rules
+
+Use these labels consistently:
+
+- User-facing 1-server paid tier: `Pro`
+- User-facing 3-server paid tier: `Premium`
+- Internal 1-server tier id: `pro_1`
+- Internal 3-server tier id: `pro_3`
+- Legacy alias: `premium`, treated like `pro_3`
+- Trial: behaves like Pro while active
+
+Do not describe a feature as "Premium only" if Pro also receives it. In the current model, Premium is not a higher feature tier; it is a higher server-slot tier.
+
+## 4. Core System Architecture
+
+SentinL has four main parts:
+
+1. React/Vite dashboard
+2. Express backend API
+3. Discord.js bot runtime
+4. Firebase Firestore database
+
+### 4.1 Dashboard
+
+The dashboard is a React single-page app. It lets authenticated users:
+
+- Sign in with Google/Firebase
+- Connect Discord identity
+- Select a Discord server
+- Configure moderation
+- Review flagged messages
+- Review reports
+- Review appeals
+- Manage offenders
+- View health and analytics
+- Configure bot settings
+- Configure roles, commands, leveling, giveaways, social integrations, summaries, and pricing
+
+### 4.2 Backend API
+
+The Express backend handles:
+
+- Firebase-authenticated dashboard API requests
+- Discord OAuth flow
+- Server authorization checks
+- Discord role/channel/permission lookup
+- Moderation actions from the dashboard
+- Reports and appeals APIs
+- Razorpay payment flow
+- Trial activation
+- Social integration resolution
+- Summary generation
+- Health endpoints
+- Static frontend serving after build
+
+Important auth rule:
+
+- Dashboard requests must use Firebase auth.
+- Server-specific requests must pass server authorization checks.
+- Users should only access servers they own, moderate, or have been explicitly granted access to.
+
+### 4.3 Discord Bot Runtime
+
+The Discord bot:
+
+- Listens to Discord gateway events
+- Processes messages in configured servers
+- Applies local bypass/risk logic
+- Sends eligible messages to AI moderation
+- Applies auto-delete, warn, timeout, logs, reports, appeals, and moderation actions
+- Handles slash commands
+- Handles buttons and modals
+- Sends notifications to configured log channels
+
+Required Discord capability:
+
+- Message Content Intent must be enabled in the Discord Developer Portal for message moderation to work.
+
+Important Discord permissions:
+
+- View Channels
+- Send Messages
+- Embed Links
+- Read Message History
+- Manage Messages, for delete/auto-delete
+- Moderate Members, for timeout
+- Manage Roles, for role rewards/reaction roles
+- Use Slash Commands
+
+SentinL should detect missing permissions and show warnings instead of silently failing.
+
+### 4.4 Firestore Database
+
+Firestore is the source of truth for:
+
+- Server settings
+- Server subscriptions and access tier
+- Moderation cases
+- Reports
+- Appeals
+- Metrics
+- Social integrations
+- Summaries
+- Training feedback
+- User/server authorization data
+
+The app uses cached reads and batched writes to reduce Firestore cost.
+
+### 4.5 Core User Flows
+
+These flows should be used by any LLM or developer to understand how the product behaves end to end.
+
+#### 4.5.1 New Server Setup Flow
+
+1. User signs in with Google/Firebase.
+2. User connects Discord identity.
+3. Dashboard shows servers the user can access.
+4. User selects or claims a server.
+5. User invites the SentinL bot to the server if not already present.
+6. User verifies required Discord permissions.
+7. User verifies Message Content Intent is enabled in Discord Developer Portal.
+8. User chooses a moderation log channel.
+9. User adds custom server rules and/or keyword filters.
+10. User tests the bot with the setup checklist.
+11. Dashboard should show setup state without requiring manual reload for important server changes.
+
+#### 4.5.2 Normal Message Moderation Flow
+
+1. A Discord message is created.
+2. Bot ignores messages that are ineligible, such as bot messages, unsupported channels, or messages without content access.
+3. Local harmless bypass checks safe low-risk content.
+4. Local risk routers check whether the message needs AI, deeper review, or context.
+5. If daily server AI limit is already reached, bot uses keyword/local fallback and should notify the configured log channel once per cooldown window.
+6. If AI is allowed, the primary provider checks the message.
+7. If the primary model confidently clears the message and no router/custom-rule risk exists, the message is allowed.
+8. If the message is flagged, uncertain, nuanced, or custom-rule-sensitive, SentinL runs the deeper path required by the moderation pipeline.
+9. If enabled and eligible, context is included only when needed.
+10. If enabled and eligible, premium/large-model escalation runs only for uncertain or near-threshold cases.
+11. Final decision is stored for dashboard review.
+12. Auto-delete only happens when enabled, tier-eligible, permission-safe, and confidence/risk requirements are satisfied.
+
+#### 4.5.3 Dashboard Moderation Action Flow
+
+1. Moderator opens a flagged item in the Mod Queue or related moderation surface.
+2. Dashboard displays message evidence, AI reason, confidence, level, matched rules, and context if available.
+3. Moderator can approve, warn, timeout, delete, remove from queue, or submit training feedback depending on tier and permissions.
+4. Backend must verify Firebase auth and server authorization before taking action.
+5. Backend must verify the flagged case belongs to the selected server before mutating Discord or Firestore.
+6. Discord action must check required permissions and target channel/server match.
+7. If an action is appealable, SentinL should create/update a moderation case and attempt to notify the affected user.
+8. Dashboard updates the item status without requiring a page reload.
+
+#### 4.5.4 Appeal Flow
+
+1. A moderation action creates an appealable case when appropriate.
+2. SentinL attempts to DM the affected user with action details, case ID, and an appeal button.
+3. If DMs are closed or unreliable, the user can use `/appeal case_id:<id>` inside the server.
+4. Appeal button should open a Discord modal, including from DMs, and must not fail with "Commands need to be used inside a server."
+5. User submits appeal reason.
+6. Appeal appears in the dashboard Appeals tab and may also be logged to the configured moderation channel.
+7. Moderator reviews evidence and appeal text.
+8. Moderator upholds or overturns.
+9. User is notified when possible.
+10. Overturn should reverse reversible actions when feasible, such as removing an active timeout. Deleted Discord messages cannot be restored unless SentinL separately stored evidence text.
+
+#### 4.5.5 Payment and Entitlement Flow
+
+1. User opens Pricing or Checkout.
+2. UI shows Free, Pro, and Premium.
+3. Pro means one server with the full paid feature set.
+4. Premium means up to three servers with the same paid feature set.
+5. User accepts terms before starting trial or payment.
+6. Payment provider creates an order/session.
+7. Webhook or verification endpoint validates payment securely.
+8. Entitlement is written to Firestore using provider-agnostic tier fields where possible.
+9. Dashboard and bot tier checks should reflect the new entitlement.
+10. Existing paid behavior must not depend on Razorpay-specific assumptions if payment providers change later.
+
+#### 4.5.6 AI Provider Failure / Daily Limit Flow
+
+1. Provider rate limit, provider outage, malformed JSON, queue overflow, or daily server AI limit can interrupt AI moderation.
+2. SentinL should fail safe into keyword/local fallback instead of crashing.
+3. If the daily server AI limit is reached, no more AI moderation calls should be made for that server until reset.
+4. If only Groq fallback is cooling down but Cloudflare/Qwen primary is healthy, the dashboard should not imply all AI moderation is unavailable.
+5. Limit/provider banners should be truthful, stable, and non-flickering.
+6. Malformed AI responses should not delete messages.
+7. Fallback events should be compactly logged without leaking full private message content unnecessarily.
+
+## 5. Current AI Moderation Architecture
+
+The current moderation pipeline uses Cloudflare Workers AI / Qwen as the primary model path. Groq is kept as fallback and for optional premium escalation.
+
+### 5.1 Primary Provider
+
+Primary provider:
+
+- Cloudflare Workers AI
+
+Primary model:
+
+- `@cf/qwen/qwen3-30b-a3b-fp8`
+
+Provider env vars:
+
+- `PRIMARY_AI_PROVIDER=cloudflare`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_FAST_MODEL`
+
+The model should behave as the main moderation model, not merely as a cheap fast-pass router.
+
+### 5.2 Groq Fallback
+
+Groq remains available for:
+
+- Provider fallback if Cloudflare fails
+- Optional premium 70B escalation
+- Emergency backup if Qwen output is malformed, empty, rate-limited, unavailable, or invalid after retry
+
+Groq should not be the normal source of most flagged messages when Cloudflare is healthy and configured correctly.
+
+Groq env vars:
+
+- `GROQ_API_KEY`
+- `PRIMARY_AI_MODEL`, only for Groq fallback model naming
+- `PREMIUM_AI_MODEL`, for premium escalation model naming
+- `GROQ_RPM_LIMIT`
+- `GROQ_TPM_LIMIT`
+- `GROQ_TOKEN_WINDOW_MS`
+- `GROQ_GLOBAL_COOLDOWN_MS`
+
+### 5.3 Qwen3 No-Think Requirement
+
+Because Qwen3 models can waste output tokens on reasoning-style text, SentinL adds `/no_think` and strict JSON instructions to moderation calls.
+
+Purpose:
+
+- Reduce output token waste
+- Avoid `finish_reason: length`
+- Keep output parseable
+- Prevent unnecessary Groq fallback
+
+The model must return final JSON only.
+
+### 5.3.1 Current Cost Model Assumptions
+
+The current primary moderation path is designed around Cloudflare Workers AI / Qwen because it is cheap enough to support larger servers while keeping Groq as fallback.
+
+Current default model:
+
+- `@cf/qwen/qwen3-30b-a3b-fp8`
+
+Current pricing assumption for planning:
+
+- Cloudflare Qwen3 30B A3B FP8: about $0.051 per 1M input tokens and $0.335 per 1M output tokens.
+- Cloudflare Workers AI free allocation: 10,000 neurons per day across Workers AI usage.
+- Groq Llama 3.1 8B Instant fallback planning baseline: about $0.05 per 1M input tokens and $0.08 per 1M output tokens.
+
+Product planning rule:
+
+- Cloudflare/Qwen should handle normal moderation.
+- Groq should not be the normal paid-cost path unless Cloudflare is unavailable, malformed, rate-limited, or explicitly configured away from Cloudflare.
+- All provider calls still count toward the same per-server daily AI check limit.
+- Average moderation cost should be estimated from real checked-message volume, not total Discord message volume, because local bypass and router logic intentionally prevent harmless messages from reaching AI.
+
+### 5.4 Required AI Response Schema
+
+Moderation responses should normalize into:
+
+```json
+{
+  "results": [
+    {
+      "index": 1,
+      "flag": true,
+      "confidence": 95,
+      "level": "Safe | Spam | Moderate | Inappropriate | Extreme",
+      "reason": "short explanation"
+    }
+  ]
+}
+```
+
+The parser should support both the current `{ "results": [] }` format and older raw array formats for backward compatibility.
+
+Malformed JSON must not directly cause message deletion. If parsing fails, SentinL should fall back to safe review or keyword-only mode depending on the risk and provider state.
+
+## 6. Moderation Pipeline
+
+The pipeline must stay staged and cost-aware.
+
+### 6.1 Step 1: Ignore Ineligible Messages
+
+SentinL should skip:
+
+- Bot messages
+- System messages
+- DMs where server context is unavailable, except supported commands/interactions
+- Messages from inactive servers
+- Messages in ignored channels/categories, if configured
+- Messages where required configuration cannot be loaded safely
+
+### 6.2 Step 2: Local Harmless Bypass
+
+The local bypass handles clearly harmless common Discord messages without AI cost.
+
+Examples of safe bypass categories:
+
+- Greetings
+- Thanks and appreciation
+- Simple reactions
+- Coordination phrases
+- Gameplay-positive phrases
+- Normal short replies
+- Emoji-only messages
+- Number-only messages
+- URL-only messages when safe
+
+Important guard:
+
+Before bypassing as safe, SentinL must check high-risk signals.
+
+Do not bypass if the message contains:
+
+- Slurs
+- Violent threats
+- Sexual content
+- Self-harm terms
+- Harassment phrases
+- Discord invite links
+- Suspicious URLs with extra text
+- Mass mentions
+- Excessive repeated characters
+- Obfuscated profanity
+- Mixed-language or unknown slang risk
+
+The bypass must be conservative.
+
+Recent optimization:
+
+- Longer clearly safe server/admin/help/update messages can bypass AI through `shouldBypassClearlySafeLongMessage`.
+- This bypass must reject messages with direct targeting, mentions/replies, non-Latin or mixed-language uncertainty, suspicious links, invite links, high-risk terms, custom-rule risk, judgment language, or indirect contempt.
+- Router matching should use token/phrase boundaries instead of raw substring checks. For example, `head` should not match inside `ahead`, and `he` should not match inside `the`.
+- This optimization exists to reduce AI calls for harmless paragraphs without making sarcasm, passive aggression, transliterated abuse, threats, sexual content, slurs, or targeted insults easier to bypass.
+
+### 6.3 Step 3: Local Risk Routers
+
+SentinL uses local routing helpers before accepting an AI safe result.
+
+The helpers do not decide that a message is bad. They decide whether a message is too nuanced to safely clear cheaply.
+
+Current important local routers:
+
+- Custom rule router
+- Nuanced intent router
+- Pragmatic hostility / sarcasm structure analysis
+- Linguistic uncertainty detection
+- Cross-language / transliteration risk detection
+- High-risk keyword fallback
+
+These routers should avoid giant hardcoded insult lists. They should focus on structure:
+
+- Directly addressing another user
+- Evaluation or judgment language
+- Condescending praise
+- Passive aggressive contrast
+- Sarcasm markers
+- Hostile metaphor structure
+- Repeated targeted comments
+- Custom rules about respect, bullying, toxicity, sarcasm, baiting, drama, language-only restrictions, links, invites, promo, trading, giveaways, sales, DM requests, spoilers, NSFW references, and role requests
+
+### 6.4 Step 4: Primary AI Moderation
+
+If a message is not safely bypassed, SentinL sends it to the primary AI provider.
+
+Current expected behavior:
+
+- Cloudflare/Qwen is the primary model.
+- Qwen should apply the same moderation instructions that Groq previously applied.
+- Qwen should check custom rules, language settings, policy categories, slang, transliteration, harassment, sarcasm, sexual content, spam, scams, threats, and unsafe content.
+- Qwen should be allowed to flag directly.
+- Qwen should not merely pass questionable messages to Groq.
+
+### 6.5 Step 5: Full-Pass / Deeper Review
+
+Messages should move to fuller review when:
+
+- Fast/simple analysis is uncertain
+- Custom rules are triggered
+- The local router detects nuanced targeted hostility
+- The message may be sarcasm/passive aggression
+- The message has linguistic uncertainty
+- The message is short but may be vulgar or abusive in another language
+- The model gives a safe result with low confidence
+- The model output is incomplete or malformed
+
+### 6.6 Step 6: Context Usage
+
+There are two context concepts.
+
+#### Paid Context Toggle
+
+`useContext` is a Pro/Premium setting. When enabled, SentinL can include recent conversation context in fuller AI moderation calls.
+
+Purpose:
+
+- Understand sarcasm
+- Understand arguments
+- Understand targeted harassment
+- Understand repeated behavior
+- Reduce false positives on jokes or friendly banter
+
+#### Cost-Aware Micro-Context
+
+The normal moderation pipeline may use very small context only for high-nuance cases when it improves accuracy enough to justify cost.
+
+This should not become a full context dump for every message.
+
+Rules:
+
+- Do not include context in obviously safe local bypass cases.
+- Do not include context for every low-risk message.
+- Use context only when routers detect ambiguity or targeted nuance.
+- Keep the number of context messages small.
+- Do not break the paid `useContext` feature.
+
+### 6.7 Step 7: Premium 70B Escalation
+
+Premium 70B escalation should run only when:
+
+- Server is Premium / Pro 3
+- `enableDualModel` is true
+- The full-pass result remains uncertain or near threshold
+- The message risk is high enough to justify cost
+
+Do not escalate every sarcastic or ambiguous message to 70B by default.
+
+### 6.8 Step 8: Final Decision
+
+SentinL uses:
+
+- AI flag result
+- Confidence
+- Server confidence threshold
+- Severity level
+- Custom rules
+- Router risk
+- Review-only preference
+- Server tier
+- Auto-delete setting
+- Bot permissions
+
+Possible outcomes:
+
+- Safe / ignored
+- Flagged to moderation queue
+- Needs review
+- Auto-deleted
+- Warned
+- Timed out
+- Keyword fallback action
+- Appealable moderation case
+
+## 7. Sarcasm and Passive Aggression Detection
+
+Sarcasm detection should not depend on a giant list of exact phrases.
+
+SentinL should detect sarcasm and passive aggression through structure:
+
+- Positive words used in a negative or targeted way
+- Praise aimed at a person after a failure or disagreement
+- Condescending questions
+- Dismissive minimizers
+- Mock politeness
+- "You/your/you're/u" targeting
+- Hostile metaphors about intelligence, competence, maturity, usefulness, attention, or social worth
+- Contrasts like praise plus negative outcome
+- Punctuation or emoticons that make the tone dismissive
+- Server custom rules that explicitly ban sarcasm, passive aggression, baiting, harassment, toxicity, or disrespect
+
+Examples of messages that should not be cheaply cleared:
+
+- A message that looks positive but is directed at one user in a hostile situation
+- A message using praise to insult someone's competence
+- A message using metaphor to call someone stupid, useless, immature, or unwanted
+- A message that would be harmless in a group context but hostile when aimed at one user
+
+Important:
+
+- The local sarcasm router should not automatically punish.
+- It should force fuller AI analysis or review.
+- If the server has a custom no-sarcasm rule and the AI agrees, it should create a visible flag or review item instead of silently clearing.
+
+## 8. Cross-Language and Transliteration Moderation
+
+SentinL must detect abuse across major languages, including romanized slang and words from one language typed in another alphabet.
+
+Examples of categories:
+
+- Profanity
+- Sexual slang
+- Slurs
+- Body-part abuse
+- Caste/ethnic abuse
+- Harassment terms
+- Obfuscated terms
+
+Rules:
+
+- Do not hardcode only Hindi or Bengali.
+- Consider major global language families.
+- If the message is English profanity, describe it as English profanity.
+- Do not copy prompt examples into the reason.
+- Do not call something Hindi/Bengali/Spanish/etc. unless the model is confident.
+- If uncertain, return low confidence or review instead of high-confidence safe.
+
+## 9. Keyword Fallback and Provider Failure Behavior
+
+SentinL must keep protecting servers even when AI is unavailable or a daily limit is reached.
+
+Fallback modes:
+
+- Daily AI limit fallback
+- Provider cooldown fallback
+- Queue overflow fallback
+- Malformed JSON fallback
+- Network/provider failure fallback
+
+When fallback is active:
+
+- Do not make more AI calls for that server if the server daily AI limit is reached.
+- Use keyword/regex/local risk checks.
+- Log compact provider errors.
+- Do not delete messages based only on malformed AI output.
+- Notify the configured log channel when the daily AI moderation limit is reached.
+- Include reset time in limit notifications.
+- Avoid spamming repeated limit notifications.
+
+## 10. Model Usage Tracking
+
+SentinL should track model usage separately for cost and debugging.
+
+Current usage labels include:
+
+- `cloudflare_primary_fast`
+- `cloudflare_primary_full`
+- `cloudflare_compact_linguistic`
+- `groq_fallback_primary_fast`
+- `groq_fallback_primary_full`
+- `primary_fast`
+- `compact_linguistic`
+- `primary_full`
+- `primary_full_context`
+- `primary_full_safety_micro_context`
+- `premium_70b`
+- `keyword_fallback`
+- `keyword_fallback_daily_quota`
+- `queue_overflow_fallback`
+
+The dashboard should make it clear which model/provider handled moderation where useful.
+
+## 11. Moderation Queue and Dashboard Actions
+
+The moderation queue shows flagged and review-needed messages.
+
+Actions may include:
+
+- Dismiss
+- Delete
+- Warn
+- Timeout
+- Overturn / correct decision
+- Mark as reviewed
+
+Dashboard actions should:
+
+- Check server authorization
+- Check Discord permissions
+- Create moderation action records when appropriate
+- Notify users when appealable actions are taken
+- Avoid duplicate actions
+- Fail safely if the original message is already deleted
+
+Free-tier access:
+
+- Appeals and basic fairness workflows should not depend entirely on paid-only dashboard moderation actions.
+- If a moderation case exists and is appealable, the user should be able to submit an appeal regardless of whether the server is Pro.
+
+## 12. Appeals System
+
+SentinL includes a structured appeals workflow.
+
+### 12.1 When Appeals Are Created
+
+Appealable cases can be created when SentinL moderation actions are taken, such as:
+
+- Delete
+- Warn
+- Timeout
+- Other configured moderation actions
+
+### 12.2 User Notification
+
+When an appealable moderation action happens, SentinL attempts to DM the affected user.
+
+The DM may include:
+
+- Action taken
+- Case ID
+- Reason
+- Evidence snippet when allowed
+- Appeal button
+- Instruction to use `/appeal case_id:<id>` inside the server if the button fails or DMs are unreliable
+
+If the user has DMs closed, SentinL cannot guarantee DM delivery. The `/appeal` command acts as backup.
+
+### 12.3 Appeal Button and Modal
+
+The appeal button opens a Discord modal where the user can submit an appeal reason.
+
+The modal custom IDs include:
+
+- `appeal:{serverId}:{caseId}`
+- `submit_appeal:{serverId}:{caseId}`
+
+DM button interactions must be supported. They should not fail with "Commands need to be used inside a server."
+
+### 12.4 `/appeal` Command
+
+Users can run `/appeal` in a server to view recent appealable cases or appeal a specific case ID.
+
+Rules:
+
+- A user can only appeal their own case.
+- Expired appeal windows cannot be submitted.
+- Already appealed cases cannot be appealed again.
+- Non-appealable actions should be rejected clearly.
+
+### 12.5 Moderator Appeal Review
+
+Appeals appear in:
+
+- Dashboard Appeals tab
+- Optional moderation log channel notification
+
+Moderators can:
+
+- Uphold the decision
+- Overturn the decision
+- Add review notes
+
+If overturned:
+
+- The case should update in Firestore.
+- The user should be notified when possible.
+- Reversible actions should be reversed when feasible, such as removing an active timeout.
+- Deleted Discord messages cannot be restored unless SentinL stored evidence text separately; evidence is for review, not message restoration.
+
+## 13. Reports System
+
+SentinL supports user reports separate from AI moderation.
+
+Reports should allow users or moderators to submit issues for review. Reports appear in the dashboard and can be archived/resolved.
+
+Reports should:
+
+- Check server authorization
+- Avoid leaking report content across servers
+- Respect retention/redaction rules
+- Keep pending reports from losing needed evidence too early
+
+## 14. Privacy, Evidence, and Retention
+
+SentinL may store limited moderation evidence to support:
+
+- Moderator review
+- Appeals
+- Reports
+- Analytics
+- False-positive/false-negative training
+
+Stored moderation evidence may include:
+
+- Flagged message snippet
+- Author Discord ID
+- Channel ID
+- Server ID
+- Timestamp
+- AI reason
+- Confidence
+- Severity
+- Action taken
+- Appeal text
+- Moderator review notes
+
+Privacy rules:
+
+- Do not store every normal message permanently.
+- Do not log raw message content unnecessarily.
+- Do not expose server data to unauthorized users.
+- Evidence snippets should be redacted after the configured retention window.
+- Current policy expectation: moderation evidence snippets are redacted after 30 days by default unless tied to active appeal or pending report.
+- Moderation records may remain for analytics for up to 6 months.
+- Users/server admins should be able to request deletion through supported flows such as `/wipedata` or support contact.
+
+The privacy policy and terms must disclose:
+
+- What data is stored
+- Why it is stored
+- How long it is stored
+- Who can access it
+- How deletion can be requested
+- That Discord messages deleted in Discord cannot be restored by SentinL unless evidence text was separately stored
+
+## 15. Server Setup and Onboarding
+
+The dashboard includes a server setup checklist and setup section.
+
+Onboarding should guide admins through:
+
+- Selecting/claiming a server
+- Ensuring the bot is installed
+- Checking required Discord permissions
+- Setting a log channel
+- Enabling Message Content Intent
+- Configuring custom rules
+- Setting confidence threshold
+- Choosing auto-delete behavior
+- Enabling context if paid
+- Running test moderation safely
+
+The checklist should remain visible unless a future product decision adds persistence/dismissal back intentionally.
+
+## 16. Dashboard Feature Requirements
+
+### 16.1 Login
+
+Login uses Firebase Auth with Google sign-in.
+
+Required frontend env vars:
+
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_APP_ID`
+- `VITE_FIRESTORE_DATABASE_ID`
+- `VITE_DISCORD_CLIENT_ID`
+
+Firebase authorized domains must include the production domain and any preview domains used by the app.
+
+### 16.2 Server Context
+
+The dashboard tracks:
+
+- Selected server
+- User tier
+- Server tier
+- Shared server access
+- Daily AI count
+- Daily AI limit
+- Bot installation/health state
+- Permission warnings
+
+### 16.3 Content Moderation Section
+
+Tabs:
+
+- Queue
+- Reports
+- Appeals
+- Offenders
+- Health
+- Settings
+
+The moderation section should support direct navigation through hash tabs such as `/moderation#appeals`.
+
+### 16.4 Bot Settings
+
+Settings include:
+
+- Log channel
+- Language
+- Custom rules
+- Keyword pre-filtering
+- Auto-delete on keyword match
+- Confidence threshold
+- Auto-delete
+- Context reading
+- Dual-model escalation
+- Commands
+- Roles/reaction roles
+
+Paid-only settings must be gated clearly.
+
+### 16.5 Advanced Analytics
+
+Analytics include:
+
+- Message volume
+- Member stats
+- Moderation stats
+- Command usage
+- Summaries
+- Health and community trends
+
+High-volume analytics should be fetched on demand or aggregated to avoid Firestore read spikes.
+
+### 16.6 Leveling and Giveaways
+
+SentinL includes community engagement tools:
+
+- XP and leveling
+- Role rewards
+- XP reset/resync
+- Giveaways
+- Reaction roles
+
+These features must not interfere with moderation performance.
+
+### 16.7 Social Integrations
+
+SentinL supports Twitch and YouTube integrations.
+
+Requirements:
+
+- Resolve usernames/channel IDs safely
+- Store integration config per server
+- Poll or process integrations without excessive Firestore reads
+- Skip or disable integrations for servers without required tier/access
+- Avoid background NOT_FOUND spam when a database/project ID is misconfigured
+
+### 16.8 Summaries
+
+SentinL can generate AI summaries for server channels.
+
+Rules:
+
+- Summary generation consumes AI budget.
+- Free users have lower summary limits.
+- Pro and Premium users get higher limits.
+- Summary generation should respect auth, server access, channel permissions, and content size limits.
+
+## 17. Payments and Entitlements
+
+Current payment integration:
+
+- Razorpay
+
+Payment flow:
+
+- Create order
+- Verify payment
+- Apply access tier
+- Store subscription/access pass
+- Support Pro and Pro 3
+- Support 30-day access passes
+
+Important:
+
+- Payment provider may change later.
+- Business logic should not be hardcoded only to Razorpay where avoidable.
+- Entitlement checks should be provider-agnostic.
+
+Entitlement rules:
+
+- `pro_1`: 1 server
+- `pro_3`: 3 servers
+- `premium`: legacy alias/fallback for Pro 3 behavior
+- Trial: behaves like Pro while active
+- Beta grant: behaves like granted tier while active
+
+## 18. API and Security Requirements
+
+### 18.1 Authentication
+
+All private dashboard APIs must require Firebase auth.
+
+### 18.2 Server Authorization
+
+Server-scoped APIs must require server authorization.
+
+Users should not be able to:
+
+- Read another server's data
+- Change another server's settings
+- View another server's moderation evidence
+- Act on another server's appeals
+- Trigger moderation actions in another server
+
+### 18.3 Mutation Rate Limiting
+
+Sensitive mutation endpoints should use rate limiting.
+
+Examples:
+
+- Moderation actions
+- Rule creation
+- Command registration
+- Giveaway actions
+- Payment endpoints where applicable
+
+### 18.4 Webhook Security
+
+Webhook endpoints must validate signatures where supported.
+
+Razorpay webhook validation must use `RAZORPAY_WEBHOOK_SECRET`.
+
+### 18.5 Secrets
+
+Secrets must only live in environment variables or hosting secret managers.
+
+Never commit:
+
+- Discord bot token
+- Discord client secret
+- Firebase private key
+- Firebase service account JSON
+- Groq API key
+- Cloudflare API token
+- Razorpay secret
+- Twitch secret
+- YouTube API key
+
+If secrets were pasted into chat or logs, rotate them before production deployment.
+
+### 18.6 Frontend Security
+
+The app should use safe security headers/CSP where possible.
+
+Frame ancestors should allow only intended hosts. If AI Studio preview needs iframe loading, preview-specific hosts may need to be allowed in development/preview without weakening production.
+
+Global browser error handlers should not hide real application errors from development logs. Suppression should only prevent noisy cross-origin "Script error." popups from harming user experience.
+
+## 19. Environment Variables
+
+### 19.1 Required Core Variables
+
+```env
+APP_URL=
+DISCORD_BOT_TOKEN=
+DISCORD_CLIENT_ID=
+DISCORD_CLIENT_SECRET=
+DISCORD_PUBLIC_KEY=
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY=
+FIRESTORE_DATABASE_ID=
+```
+
+### 19.2 Frontend Firebase Variables
+
+```env
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIRESTORE_DATABASE_ID=
+VITE_DISCORD_CLIENT_ID=
+```
+
+### 19.3 Cloudflare / Qwen Primary Moderation Variables
+
+```env
+PRIMARY_AI_PROVIDER=cloudflare
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_FAST_MODEL=@cf/qwen/qwen3-30b-a3b-fp8
+CLOUDFLARE_MODERATION_MAX_TOKENS_FLOOR=700
+```
+
+### 19.4 Groq Fallback Variables
+
+```env
+GROQ_API_KEY=
+PRIMARY_AI_MODEL=
+PREMIUM_AI_MODEL=
+GROQ_RPM_LIMIT=
+GROQ_TPM_LIMIT=
+GROQ_TOKEN_WINDOW_MS=
+GROQ_GLOBAL_COOLDOWN_MS=
+```
+
+### 19.5 Payment Variables
+
+```env
+RAZORPAY_KEY_ID=
+RAZORPAY_KEY_SECRET=
+RAZORPAY_WEBHOOK_SECRET=
+```
+
+### 19.6 Social Integration Variables
+
+```env
+TWITCH_CLIENT_ID=
+TWITCH_CLIENT_SECRET=
+TWITCH_WEBHOOK_SECRET=
+YOUTUBE_API_KEY=
+```
+
+## 20. Firestore Database ID Handling
+
+SentinL must use the configured Firestore database ID consistently.
+
+Important:
+
+- `FIRESTORE_DATABASE_ID` is used by backend/admin code.
+- `VITE_FIRESTORE_DATABASE_ID` is used by frontend code.
+- Code should read the database ID lazily after dotenv has loaded.
+- Do not hardcode `(default)` if a non-default database is configured.
+- Background jobs should use the same database ID as the main app.
+
+The current app uses a non-default Firestore database ID. A wrong database ID can produce Firestore `5 NOT_FOUND` warnings even when the core app appears healthy.
+
+## 21. Build and Deployment Requirements
+
+The app should be deployable to any Node-compatible hosting service, not only Railway.
+
+Expected build/start behavior:
+
+- `npm run build` builds frontend and server artifacts.
+- `npm start` runs `dist/server.cjs`.
+- The server serves the built frontend and backend API.
+- Hosting must provide required env vars.
+- The Discord bot process must stay running for gateway moderation to work.
+
+Important:
+
+- If hosting sleeps, the dashboard may load slowly and the Discord bot may disconnect.
+- For a Discord gateway bot, always-on hosting is strongly preferred.
+- Railway-specific behavior should not be required for core app correctness.
+
+## 22. Testing and Deployment Readiness
+
+Before deployment, run:
+
+```bash
+npm run build
+npm audit --audit-level=moderate
+```
+
+Recommended tests:
+
+```bash
+npm run test:unit
+npm run test:smoke
+npm run test:integration
+```
+
+Known testing requirement:
+
+- Tests importing `discordBot.ts` should set `TEST_MODE=true`.
+- Unit tests should avoid real Discord/Firebase side effects.
+- Integration tests need Discord/Firebase/cron mocks.
+- Timers, cron jobs, queues, listeners, and bot clients must be cleaned up after tests.
+
+If tests are stale after the Cloudflare/Qwen migration, update mocks and expectations so tests reflect the current provider architecture.
+
+## 23. Operational Health
+
+Health endpoints should show:
+
+- App status
+- Bot readiness
+- Missing intents warning
+- Disabled features
+- Provider health/cooldown state where appropriate
+
+Provider cooldown banners should:
+
+- Reflect true provider cooldown state
+- Not flicker because of too-short cooldown parsing
+- Not block Cloudflare primary when only Groq fallback is cooling down
+- Clearly explain when moderation falls back to keyword mode
+
+## 24. Non-Goals and Guardrails
+
+SentinL should not:
+
+- Store every server message forever
+- Require server owners to manually reload the dashboard for every important update
+- Depend on one AI provider permanently
+- Let malformed AI output delete messages
+- Let paid-tier features break free-tier safety
+- Let Groq fallback become the normal path when Qwen is healthy
+- Hardcode endless slur lists as the main moderation strategy
+- Hide missing Discord permissions
+- Leak secrets into frontend code, logs, GitHub, or AI Studio prompts
+
+Future edits must also avoid these common mistakes:
+
+- Do not make Groq the normal moderation path when Cloudflare/Qwen is configured and healthy.
+- Do not use Groq only because Qwen flagged a message. Groq fallback should be for provider failure/cooldown/malformed output/escalation cases, not normal confirmation.
+- Do not bypass custom server rules in fast-pass or final-clear logic.
+- Do not make Premium feature-richer than Pro unless the pricing model is intentionally changed first.
+- Do not describe Pro/Premium differently in Pricing, Checkout, Profile, Terms, Discord commands, or ProGate copy.
+- Do not count only flagged messages as AI usage. AI usage is counted when an AI provider is called.
+- Do not silently keep making AI calls after the daily server limit is reached.
+- Do not expose one server's messages, reports, appeals, subscriptions, or settings to another server.
+- Do not let dashboard actions mutate Discord without checking server ownership/access and Discord permissions.
+- Do not require appeals to work only from DMs. `/appeal` inside the server must remain a fallback.
+- Do not ask AI models for hidden chain-of-thought.
+- Do not log raw message content unnecessarily in production logs.
+- Do not introduce broad destructive test scripts that can wipe project files or production Firestore data.
+
+## 25. Current Product Positioning
+
+SentinL should be positioned as:
+
+- AI moderation for Discord communities
+- More nuanced than keyword bots
+- More affordable through staged AI routing and daily limits
+- Fairer because of appeals and evidence review
+- More adaptable because of custom server rules
+- Useful for moderators, not only server owners
+
+Primary differentiators:
+
+- Custom server rule-aware moderation
+- Sarcasm/passive aggression routing
+- Cross-language slang/transliteration awareness
+- Appeals workflow
+- Dashboard moderation queue
+- Keyword fallback after AI limits/provider issues
+- Pro and Premium pricing based mainly on server count, not feature fragmentation
+
+## 26. Source of Truth Notes
+
+This PRD reflects the current intended app behavior after the Qwen/Cloudflare primary model migration and appeals/workflow updates.
+
+If code and PRD conflict:
+
+1. Confirm whether the code is newer than this document.
+2. Update this PRD before using it as input to AI Studio.
+3. Avoid asking AI Studio to "match the PRD" if the PRD is stale.
+
+This document should be kept updated whenever changes are made to:
+
+- AI provider/model routing
+- Tier limits
+- Pricing
+- Appeals
+- Privacy/evidence retention
+- Payment provider
+- Deployment requirements
+- Firestore database configuration
+- Discord permission requirements
+
+## 27. Current File Map for LLMs and Developers
+
+Use this map before making code changes. It helps another LLM inspect the right files instead of scanning the whole project blindly.
+
+Core runtime:
+
+- `src/discordBot.ts`: Discord client, message moderation pipeline, AI routing, fallback behavior, command handlers, daily counters, Discord actions, appeals interactions, giveaways runtime, XP/runtime tasks.
+- `server.ts`: Express API, Firebase auth checks, server authorization, dashboard mutation endpoints, reports, appeals, subscriptions/payment endpoints, integrations, summaries, Discord action endpoints.
+- `src/utils/aiProvider.ts`: Cloudflare/Groq provider abstraction.
+- `src/utils/groqBudget.ts`: Groq token/request budgeting and cooldown support.
+- `src/utils/groqRateLimit.ts`: Groq reset header parsing.
+- `src/utils/planHelper.ts`: Tier normalization, plan limits, daily AI limits, max server slots.
+- `src/utils/entitlements.ts`: Server subscription/tier lookup and paid access resolution.
+- `src/utils/discordCommands.ts`: Slash command definitions and appeal custom ID parsing.
+- `src/utils/nuancedIntentRouter.ts`: Local nuanced/sarcasm/passive-aggression routing support.
+- `src/utils/moderationHelpers.ts`: Shared moderation helper logic.
+
+Dashboard and UI:
+
+- `src/App.tsx`: Main routing/sidebar shell.
+- `src/context/ServerContext.tsx`: Selected server, tier, user/server context, permissions, subscription state.
+- `src/components/Dashboard.tsx`: Main dashboard overview and setup sections.
+- `src/components/SetupChecklist.tsx`: Server setup checklist and Message Content Intent wording.
+- `src/components/PermissionsWarning.tsx`: Bot permission and intent warnings.
+- `src/components/ContentModeration.tsx`: Moderation section shell.
+- `src/components/ModQueue.tsx`: Flagged messages, approve/warn/timeout/delete actions, manual training UI.
+- `src/components/ModSettings.tsx`: Moderation settings, auto-delete, context, dual-model toggles.
+- `src/components/ReportsManager.tsx`: User report workflow.
+- `src/components/AppealsManager.tsx`: Moderator appeal review workflow.
+- `src/components/Offenders.tsx`: Repeat offenders.
+- `src/components/BotSettings.tsx`: General settings, log channel, custom rules, keyword filters, rule recommendations, command tabs.
+- `src/components/CustomCommandsBuilder.tsx`: Custom command builder.
+- `src/components/CommandsGuide.tsx`: User-facing command guide.
+- `src/components/AdvancedAnalytics.tsx`: Analytics, weekly digest, exports, training analytics/log.
+- `src/components/HealthScore.tsx`: Health score and widget customization.
+- `src/components/LevelingManager.tsx`: XP, role rewards, leaderboard, reset/settings.
+- `src/components/RolesManager.tsx`: Reaction roles.
+- `src/components/GiveawaysManager.tsx`: Dashboard giveaway management.
+- `src/components/Integrations.tsx`: YouTube/Twitch integration UI.
+- `src/components/SummariesFeature.tsx`: Channel summaries UI.
+- `src/components/Pricing.tsx`: Pricing plan UI and trial/payment entry.
+- `src/components/Checkout.tsx`: Upgrade/checkout page.
+- `src/components/Profile.tsx`: User profile and current tier display.
+- `src/components/ProGate.tsx`: Locked paid-feature wrapper and upgrade popup.
+- `src/components/Login.tsx`: Firebase/Google sign-in UI.
+- `src/firebase.ts`: Frontend Firebase initialization and environment handling.
+
+Security, privacy, docs, and deployment:
+
+- `firestore.rules`: Firestore client security rules.
+- `firestore.indexes.json`: Firestore indexes.
+- `src/components/PrivacyPolicy.tsx`: User-facing privacy policy.
+- `src/components/TermsOfService.tsx`: User-facing terms.
+- `README.md`: Deployment/environment/provider notes.
+- `vite.config.ts`: Build/test config.
+- `package.json`: Scripts and dependencies.
+- `scripts/assertProjectRoot.cjs`: Project root safety check.
+- `scripts/checkViteEnv.cjs`: Frontend environment validation.
+- `scripts/buildServer.cjs`: Server build pipeline.
+
+When asking another LLM to work on SentinL:
+
+1. Point it to the exact feature area and relevant files from this map.
+2. Tell it whether code or this PRD is the current source of truth.
+3. Ask it not to scan unrelated areas unless needed.
+4. Ask it to preserve Pro/Premium feature parity unless explicitly changing pricing.
+5. Ask it to run only the smallest useful verification command for the files changed.

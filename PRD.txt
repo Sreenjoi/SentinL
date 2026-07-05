@@ -1,0 +1,246 @@
+# SentinL Dashboard and Discord Bot - Comprehensive Product Requirements Document (PRD)
+
+## 1. Executive Summary
+
+### 1.1 Vision and Mission
+SentinL is built to revolutionize community management on Discord by integrating advanced artificial intelligence directly into the moderation workflow. The mission is to empower server administrators, community managers, and trust & safety teams to scale their operations effortlessly without compromising on accuracy. Traditional bots rely heavily on static regex logic and hardcoded blacklists, which fail to understand nuance, sarcasm, or context. SentinL aims to eliminate these blind spots by leveraging massive, modern Large Language Models (LLMs) to perform semantic and contextual moderation.
+
+### 1.2 Target Audience
+* **Small to Medium Communities (Free Tier):** Seeking basic manual command handling, giveaway systems, and leveling. AI-driven moderation settings are heavily restricted.
+* **Growing Content Creators (Pro Tier):** Requiring automated AI moderation, context awareness, automated message deletion, and deeper analytics to protect their brand and manage rapid growth.
+* **Enterprise and Large DAOs (Premium Tier):** Needing multi-server management, dual-model high-confidence escalation, unlimited integrations, dedicated digest reporting, and massive throughput for sprawling communities.
+
+### 1.3 Monetization Strategy
+SentinL operates on a Freemium model with two paid tiers:
+* **Free:** Basic bot utility features (roles, giveaways, leveling), AI confidence thresholds, and Auto-delete (for keyword matching only).
+* **Pro 1 (Single Server):** $7.99/month. Unlocks the entire complete native AI Moderation Suite (Auto-Delete for AI classifications, Context Usage, Language Targeting, Baseline Prompts), custom commands, and 14-day trials.
+* **Premium / Pro 3 (Multi-Server):** $19.99/month. Supports up to 3 active servers. Unlocks Dual-Model Escalation (70B Llama 3 validation), advanced recommendation generation, massive AI daily quotas, and full data analytics exports, as well as the Weekly Digest DM functionality.
+
+> **CRITICAL REVISION:** The entirety of the "AI Moderation Settings" configuration (including Context Window Usage, Full AI Auto-Delete, AI Multi-Language Parsing, Custom Prompt Definitions, and Dual-Model Escalation) are explicitly locked behind the Pro/Premium subscription tiers. The Free tier has access to AI confidence thresholds, and auto-delete is strictly limited to basic keyword matching.
+
+---
+
+## 2. System Architecture
+
+### 2.1 High-Level Overview
+SentinL operates as a singular cohesive unit deployed via Google Cloud Run, seamlessly merging a modern web backend with a highly concurrent Discord bot runtime. 
+
+* **The React Dashboard:** Client-side Single Page Application (SPA), providing the visual configuration layer.
+* **The Express REST API:** The interface for authentication, billing, integrations parsing, dynamic Discord data fetching, and health checks.
+* **The Discord Bot Runtime:** A stateful `discord.js` application holding websockets open to the Discord Gateway, reacting in real-time to server events.
+* **The Database (Firestore):** Provides real-time `onSnapshot` streaming capabilities. Changes on the web dashboard immediately stream to the Express backend, which updates the bot's memory space instantly.
+
+### 2.2 Data Flow Lifecycle
+1. **User Input:** A message is sent in a Discord server.
+2. **Bot Interception:** The bot's `messageCreate` event handler reads the event.
+3. **State Fetching:** The bot retrieves cached server settings (from Firestore streams).
+4. **Pre-Filtering:** Fast regex regex checks (ReDoS protected).
+5. **AI Dispatch:** The message string, coupled with the last 12 context messages, server rules, and system prompts, is dispatched to Groq via the generic API wrapper.
+6. **Decision Processing:** Output from the LLM (JSON format) is parsed. If `isReported` is true, actions like Auto-Delete or Flagging occur.
+7. **Cross-System Sync:** Modifications to the database (adding a flag, deleting a message) immediately update the Web Dashboard UI for moderators via Firebase Live Queries.
+
+### 2.3 Scalability Considerations
+The primary bottleneck is the Discord Gateway connection limit. The bot handles thousands of RPM using an internal asynchronous Queue system (`premiumQueue` vs. `freeQueue`) to ensure Groq API rate limits are not exceeded, delaying or batching lower-tier messages globally while prioritizing Premium servers.
+
+---
+
+## 3. Database Schema & Data Models
+
+### 3.1 Collections & Documents
+
+**`servers/{serverId}`**
+The core configuration document.
+* `active` (boolean): Whether the bot should respond in this server.
+* `tier` (string): 'free', 'pro_1', 'pro_3', or 'premium'.
+* `settings` (object):
+  * `confidenceThreshold` (number): AI strictness (50-100). Available on Free tier.
+  * `autoDelete` (boolean): Automatically scrap flagged messages. (Free tier: only for keyword matches. Pro+: applies to AI flagged messages).
+  * *Available only on Pro+:*
+  * `contextUsage` (boolean): Send previous surrounding chat logs to AI for contextualization.
+  * `language` (string): Prompt injection target for AI localization.
+  * `customRules` (string): User-defined baseline instruction for the System Prompt.
+  * `enableDualModel` (boolean): Premium+. Escalate to heavier LLM models on threshold boundaries.
+  * `weeklyDigestEnabled` (boolean) & `digestChannelId` (string): Direct delivery channel target for the analytics digest.
+
+**`moderators/{firebaseUid}`**
+* Links Firebase Auth to Discord OAuth. Contains `serverIds` (array of Discord guild IDs the user has privileges in) to securely isolate data fetching logic per user.
+
+**`metrics/{metricId}` & `analytics/{recordId}`**
+* Dynamic time-series ledgers. Tracks daily usage of AI quotas, deleted messages, mute interactions, XP ranks, and daily unique users. Aggregated globally for dashboard charts safely using increment batching.
+
+---
+
+## 4. Backend Services & Discord Bot Mechanics
+
+### 4.1 Operations and Scheduled Jobs (CRON)
+The ecosystem employs background CRON tasks executing reliably to manage aggregation and complex system logic that does not need instant reactive priority:
+- **Minute-Tick:** Flushes batched data (XP increments, metrics, message cache dumps) to Firestore memory to prevent rate-limit burns from rapid Discord traffic.
+- **Hourly Tick:** Health score and community streak processor. Recompiles server moderation records historically to determine if a server successfully maintained a "peaceful day" status.
+- **Weekly Digest Tick:** Operates specifically on Fridays at 18:00 UTC. Calculates deep moderation metrics, ROI comparisons, and builds an exhaustive AI impact summary. Automatically dispatched to the server owner, or the configured `digestChannelId` via highly stylized Discord embeds.
+
+### 4.2 Error Handling & Architecture Resiliency
+SentinL employs graceful capability degradation:
+- **Groq API Outage / Quota Failures:** Automatically switches to basic cached Regex blacklist checks to continue blocking the most obscene forms of violations while the network recovers.
+- **Missing Permissions Validation:** Uses deeply nested try-catch barriers around Discord action APIs (`message.delete()`, `member.timeout()`, role assignments) directly relaying warnings to the `system_logs` stream observable inside the dashboard.
+- **Discord Gateway Drops:** Employs Auto-Reconnect logic, reloading cached configuration from Firestore upon re-establishing the WS packet flow.
+
+---
+
+## 5. AI Pipeline & LLM Integration Architecture
+
+### 5.1 Pre-Processor Stage
+Before ever wasting tokens or pinging external networks, SentinL runs an internal fast heuristic Regex pattern match on standard profanity/bot-spam footprints. This ensures 0ms reaction time for standard abuse.
+
+### 5.2 Dynamic Prompt Contextualizer (Pro/Premium)
+If the heuristic clears, the model prepares a system prompt. An example trace logic:
+```javascript
+let sysPrompt = `You are an AI moderator tracking toxicity. 
+Server Language: ${settings.language || 'english'}
+Custom Admin Rules: ${settings.customRules || 'none'}`;
+
+if (settings.useContext) {
+  const recentMessages = cache.get(channelId).slice(-10);
+  sysPrompt += `\nSurrounding Context:\n${recentMessages.map(m => m.content).join('\n')}`;
+}
+```
+
+### 5.3 Dual-Model Validation Net
+* **Initial Net:** `llama-3.1-8b-instant`. Handled rapidly in under 400ms. If it detects a violation, it calculates a `confidence` %.
+* **Validation Escalation (Premium):** If the 8b model outputs `isReported: true` but `confidence: 65%`, and the admin threshold is `90%`, it enters the validation array. A secondary queue dispatches the request to `llama-3.3-70b-versatile` which analyzes the ambiguity via a larger parameter space, producing the final verdict.
+
+### 5.4 SentinL Meta-Training & Recommendations Engine
+To correct AI hallucinations over time, the system observes the human mod workflow. When a moderator views the web ModQueue and presses "Dismiss Flag" or "Overturn Result", the system creates a *Training Data* object.
+Premium users have a scheduled Node script that pulls all historical Training Discrepancies and sends them to Groq:
+```javascript
+// recommendations.ts
+const prompt = `Analyze these false positives where the AI was too strict, and these false negatives where it missed abuse. Generate 1 actionable Custom Baseline Rule (max 50 chars) that corrects the AI's bias for this specific server.`;
+```
+This essentially creates a recursive self-improvement loop for specific community ecosystems ("Community DNA").
+
+---
+
+## 6. Frontend Core Features & Data Interactivity
+
+### 6.1 Unified Dashboard
+The `App.tsx` routes map cleanly to segmented analytical components utilizing a dark/glassmorphic "Cosmic Slate" aesthetic (`bg-surface-container`). 
+
+### 6.2 Leveling & XP Manager
+A comprehensive gamification framework entirely executed via the platform:
+* **The Logic:** Discord users typing messages receive random XP (e.g. 15-25 points) routed through a 60-second local throttle cooldown memory mapping.
+* **Role Rewards:** Web moderators map hierarchical ranks. As the bot calculates the level increment formula, it verifies role thresholds. If a user crosses the limit, the bot fires `member.roles.add(rewardedRole)` directly while dispatching a customized celebratory channel embedded message.
+* **XP Re-sync:** Allows admins to reset users to zero instantly across the entire Discord Guild utilizing Firebase Batch jobs.
+
+### 6.3 Command Builder Tool
+Visual interface for no-code bot building.
+* Web App allows construction of commands (e.g., `/support` or `/faq`). Admins select response embeds, message contents, or role assignments as reactions.
+* Executing "Sync" fires an Express bridging mechanism connecting to the Discord Global/Guild Application Command REST API, pushing the defined array and registering the slash command literally instantly onto Discord's UI.
+
+### 6.4 Social Integrations Polling
+Users can link Twitter Handles and YouTube Channel IDs.
+* A Node process manages a rolling temporal queue polling the respective third-party social endpoints.
+* Upon detecting a newly released video or tweet matching the targeted source ID, it extracts the URL and dynamically builds an announcement payload routed recursively into the admin-defined `discordChannelId`.
+
+---
+
+## 7. Giveaways & Reaction Role Ecosystem
+
+**Giveaways Manager:**
+Allows highly specific, automated lottery interactions:
+1. Admin authors Prize string, Winners count, Duration, and the Target Discord Channel.
+2. The Node payload formats an Embed with a reaction button component.
+3. The Discord gateway receives `interactionCreate`, persisting the user's ID into the Giveaway's active participant array.
+4. An event loop observes `expiresAt`. Upon completion, it shuffles the array, slicing the length of `winnersCount`, tags them inside the target channel asynchronously, and marks the DB state `Active: false`.
+
+**Reaction Roles Panel Generator:**
+Replaces ancient command-driven setup. Features a full React flow to configure Embed titles, descriptions, and a mapped dictionary combining explicit Discord Reaction Emojis to `RoleIds`. The interface utilizes discord API fetching to pre-populate the dropdowns with the live Server Roles. Once deployed, the Bot maintains a persistent Gateway listener, actively granting or revoking privileges based on the boolean state of the user's Emoji toggle interaction.
+
+---
+
+## 8. Health Score Engine & Gamification Constraints
+
+The engine operates on a subtractive constraint matrix:
+* **Starting State:** The community's default health resides at a pure `100` rating.
+* **The Subtraction Matrix:** Weighted penalties are exacted upon the score based on automated incident generation (e.g., Auto-delete occurrences trigger -0.5 points, High Severe flagged content drains -1.0, direct Member Mutes/Kicks severely drop it by -3.0).
+* **Restitution Logistics:** Operating as an hourly decay calculation via Cron, if zero infraction records exist in the 24-hour log buffer, the multiplier mechanism kicks into effect (`score += 3.0`), restoring the ecosystem toward equilibrium sequentially. 
+* **Streaks Status:** Holding scores exceeding `85%` for multiple consecutive check-epochs defines a functional "Peaceful Streak". Administrators mapping specific milestone roles in their settings will passively discover their active citizens receiving unique milestone-specific vanity roles as an algorithmic reward.
+
+---
+
+## 9. Deployment Architecture
+
+### 9.1 Environment Mapping
+The cluster expects these absolute environmental constraints:
+```env
+DISCORD_CLIENT_ID=string
+DISCORD_BOT_TOKEN=string
+DISCORD_CLIENT_SECRET=string
+GROQ_API_KEY=string
+FIREBASE_PROJECT_ID=string
+FIREBASE_CLIENT_EMAIL=string
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n..."
+RAZORPAY_KEY_ID=string
+RAZORPAY_KEY_SECRET=string
+RAZORPAY_WEBHOOK_SECRET=string
+```
+
+### 9.2 Build Pipeline
+All code compiles through `vite build` extracting static SPA payload, whilst the core orchestration script compiles via `esbuild` emitting a node-standard bundle pointing specifically toward `dist/server.cjs` encompassing all Websocket routing, Firebase logic, Express logic, and Cron polling inside a singularly executable monolithic Node.js container process. 
+
+### 9.3 Cost Optimization & Production Scalability
+*   **Incremental Firestore Aggregation:** Drastically reduces active reads by replacing brute-force hourly historical queries with a highly optimized sliding-window delta calculation (`runningPenalty`, `runningFalsePositives`, etc.). 
+*   **Activity-Based Hourly Crons:** Instead of checking every enabled server hourly regardless of traffic, SentinL now tracks a lightweight `healthWidget.needsUpdate` boolean. The boolean only trips when the server actually receives analytical traffic (or flags), completely pruning processing on dormant servers while still maintaining the weekly refresh anchor natively.
+*   **Cloud Run Concurrency Tuning:** Deployment containers are specifically tuned for a high `--concurrency` configuration (target: 250 requests per container) mapped over Node.js clusters to ensure maximum HTTP throughput. This configuration squeezes maximum value out of provisioned Memory/CPU resources, avoiding rampant instance scale-up and reducing server costs.
+
+## 10. Recent Implementation Updates
+
+### Dashboard & UI Refinements
+* **Overview Structuring:** Shifted the main statistical widgets into a unified **"Top Overview Section"**. Placed the "Last 7 Day Stats" to the top left as a prominent summary, while structuring Pending Flags, Open Reports, 7-Day Actions, and Community Health into a compact and elegant **2x2 grid** on the top right.
+* **Health Score Widget:** Fixed visual clarity for the "Community Health" component. If a server has an "N/A" grade (due to insufficient history), it now properly displays "N/A" along with the discrete count of tracked messages (e.g., "(120/500 msgs)"). If grade logic completes, it removes the individual message visual and strictly shows the letter Grade alongside the internal `/ X` score logic formatting.
+* **Flagged / Reported Moderation Lists:** Overhauled the Pending Flags and Open Reports queues on the dashboard view. Removed heavily padded individual card containers. Transitioned into a clean, minimalist, single-line list representation. This effectively limits the entries to the 5 most recent records with tightly controlled styling to preserve space.
+* **Recent Actions Ledger:** Introduced a responsive bot ledger specifically showcasing the exact action and parsed reasoning. It truncates gracefully on mobile while expanding into a more verbose tabular breakdown across larger desktop screens.
+
+### State & Reactivity Synchronization
+* **Real-time Tier Context Engine:** Re-architected the `fetchTier` logic housed inside `ServerContext.tsx` by centralizing it into an exportable `fetchTierData()` useCallback mechanism.
+* **Instant Dashboard Redraw:** Implemented dual Firestore `onSnapshot` watchers pointing actively at `subscriptions` and `server_subscriptions` schemas. This creates an immediate reactivity pattern where performing tier upgrade commands (like Discord's `/grantpremium` or completing Razorpay checkout flows) repaints the `isPro` gating states across the entire dashboard dynamically in real-time, removing the requirement for any manual page reloads.
+* **Expiry Scheduler Automation:** Automated the trial and subscription expiration logic inside the Context. Upon an initial load, the system intelligently extrapolates the absolute end time boundary, instantiating an active `setTimeout` that automatically forces a state refresh exactly 5 seconds past expiry to demote feature access securely, preventing loophole exploitation.
+* **Intelligent Routing Guards:** Intercepted previously public pathways in widget redirection elements (like the Dashboard "View Analytics" quick links) implementing inline tertiary statements (`to={isPro ? "/analytics" : "/pricing"}`) mitigating blind-redirect scenarios for `Free` accounts interacting with gated structural hubs.
+
+
+### Dashboard UX & Feature Access Affordances
+* **Unlocked Aesthetics for Gated Cards:** Re-styled the gated navigation cards (such as Analytics, Leveling, and Integrations) to remove grayscale filters, disabled pointer styles, and structural opacity reductions. Free tier users now perceive these core features organically with fully rendered aesthetics but are gracefully intercepted upon click and routed identically to the `/pricing` upgrades view, vastly improving perceived platform payload and up-sell continuity.
+* **PRO Pill Badge Standardization:** Audited and normalized the PRO exclusivity indicator across both the main Navigation module and the Quick Actions header matrix. Transformed the bare `<Crown />` icons and primitive blocks into uniform pill-shaped components (`bg-primary/10`, `border-primary/20`) strictly aligned vertically beneath label text to guarantee responsive height consistency sans visual clipping.
+* **Frictionless Health Card Access:** Liberated the Community Health index card from restrictive UI dampening. Free tiers can now engage with and click through to transparent historical server health timelines with total visual parity, reserving locking rules solely to configuration schemas on the inner `/moderation#health` setting views.
+* **Granular Pro-Gating for Advanced Analytics & Leveling:** Introduced robust pro-tier gating logic onto individual modules within the Leveling and Advanced Analytics sections. Rather than completely blocking access to the tabs, individual components now render behind the `ProGate` interceptor. This specifically includes locking down: Weekly Digest configurations, Manual Analytics Refreshes, custom Time Period selectors, CSV Exports, Leaderboard viewability (greys out on free), XP Multiplier/Divisor configurations, Role Rewarding systems, XP Exclusions, XP Reset abilities, Heuristic Analytics, and Full Training Logs.
+
+### Server Onboarding & Accessibility Expansion
+* **Enhanced Onboarding Customization:** Upgraded the RolesManager to embed collapsible toggles for **DM Welcome Message** and **Server Welcome Message**, allowing detailed customization.
+* **Smart Placeholders & Fallbacks:** Welcome messages execute fallback injection behaviors. If an admin does not assign text, the Bot dynamically renders a friendly default template replacing {user}, {server}, and {rules}.
+* **Unobtrusive Bot Attribution:** Integrated native, non-disruptive branding attribution into Discord welcome embed footers (Automated by SentinL).
+* **Democratic Feature Access:** Completely stripped previously imposed Pro/Premium gating upon onboarding processes. The entire Onboarding suite (Autoroles, DM Welcome, and Server Welcome) applies across all tiers.
+
+### Analytics & Dashboard Enhancements
+* **Time Range Filtering Fix:** Addressed a race condition loop in the Advanced Analytics date filter (7, 30, 90 days), enabling the charts to reliably plot correct data structures without closure overwrites upon fetch events.
+
+### Data Accuracy Enhancements
+* **Pending Count Fix:** Removed the `limit(100)` constraint from the realtime queries in `ServerContext.tsx`, resolving an issue where the pending flags and reports counts maxed out at 100 instead of displaying the actual total count on the dashboard metrics card.
+
+### Analytics Retrieval Enhancements
+* **Message Count Fix:** Updated the health message count query in the Dashboard to filter based on document IDs instead of raw timestamps to correctly tally and match the hour-based document keys generated by the backend.
+
+### Visual Fixes
+* Removed the Hash icon from the active servers quota indicator, ensuring the text is correctly middle-aligned within its container.
+
+### Visual Fixes
+* Combined the Server Quota badge and the Tier badge into one single, visually cohesive pill-shaped element separated by a vertical divider.
+
+### Vocabulary Improvements
+* Simplified the Leveling Division formula terminology inside the Dashboard settings to use layman's terms for non-technical users to quickly understand, additionally establishing a cross-reference pointing to the  and  commands.
+
+### Output Schema Optimization
+* **Method 1: Fast-Pass Triage:** Introduced a highly optimized, two-stage AI evaluation pipeline to halve output token usage globally. Instead of generating complete explanations for every message, the primary 8B model uses a lightweight schema (`flag`, `confidence`, and a 1-sentence `reasoning` chain) during an initial pass. Only messages flagged as potential violations (or generating low-confidence scores) are forwarded to the full moderation schema evaluation or escalated to the 70B model, significantly reducing latency and compute overhead for the 90%+ volume of safe messages without sacrificing Chain-of-Thought accuracy.
+
+### Fixes
+* Updated the leveling ignore list UI to display "Blacklisted Roles" instead of "Blacklisted Identity Groups" and allowed Discord Channel Selector capabilities for channel selection.
+
+*End of SentinL Product Requirements Document.*
+

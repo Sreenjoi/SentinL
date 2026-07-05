@@ -1,0 +1,28 @@
+## 10. Appeals and User Reporting Systems
+
+SentinL now provides comprehensive user governance loops, allowing community members to actively participate in maintaining safety and correcting AI or moderator mistakes.
+
+### 10.1 AI Moderation Appeals
+*   **Direct PM Notification:** When the AI (or a manual moderator) takes an enforcement action (e.g., flag, timeout, message deletion), SentinL automatically dispatches a direct message to the offending user. This PM contains the explicit case ID, the matched rule, the evidence snippet, and a secure `ButtonInteraction` component mapped to their specific Discord snowflake.
+*   **Slash Command & Modal System:** Users can click the "Appeal Decision" button or type `/appeal <case_id>` inside the server. This launches a Discord Modal where they can provide textual justification.
+*   **Appeals Manager Web Dashboard:** The React application features an `AppealsManager.tsx` module. Server administrators receive a unified inbox of all pending appeals. They can review the original context, the user's justification, and explicitly choose to "Approve" (reversing penalties, restoring XP, removing flags) or "Deny" the appeal. All actions synchronize securely back to Firestore and log publicly to the designated Discord audit channel.
+
+### 10.2 User Reports Manager
+*   **Context Menu & Slash Integration:** Members can right-click any message (Apps -> Report Message) or use the `/report` slash command to confidentially flag toxic behavior that the AI may have missed.
+*   **Triage and Assignment:** The `ReportsManager.tsx` allows moderation staff to view these user-generated reports. Staff can assign reports to themselves, mark them "In Progress," and explicitly resolve them (e.g., Ban, Timeout, Warn, or Dismiss). 
+*   **Report History Tracking:** SentinL maintains an immutable historical ledger of user reports. If a user maliciously abuses the report system, moderators can view their report history and penalize them accordingly.
+
+## 11. Advanced AI Nuance & Rate Limit Orchestration
+
+### 11.1 Nuanced Intent Router & Linguistic Uncertainty
+The AI pipeline has been heavily fortified against the common pitfall of false positives derived from sarcasm, short slang, or contextual inside jokes.
+*   **Linguistic Uncertainty Check (`linguisticUncertainty.ts`):** Evaluates short strings (under 6 words). If a message contains heavy use of slang, ambiguous profanity, or complex short phrases, the system *forces* an escalation to the heavy model (70B) or appends deep historical context. This prevents the fast-pass 8B model from prematurely banning users for saying things like "you're crazy lol".
+*   **Pragmatic Hostility Engine (`nuancedIntentRouter.ts`):** Distinguishes between light banter and targeted pragmatic hostility. It fetches "micro-context" (the immediate surrounding conversational flow) to establish whether a phrase is structurally antagonistic or merely culturally expressive.
+
+### 11.2 Groq Budgeting & Reconciled AI Limits
+*   **Financial & Quota Protection (`groqBudget.ts`):** Provides a bulletproof token estimation and reservation system. Before any LLM call is dispatched, the system calculates the estimated token burn and "reserves" it against the server's daily allowance.
+*   **Graceful Keyword Fallback (`keywordHelper.ts`):** If a server exhausts its AI limits, the system does not fail or leave the community unprotected. It seamlessly routes traffic through an advanced heuristic keyword-matching system. It also dispatches a structured warning embed to the administrative log channel notifying the team that AI limits have been reached and standard fallback filtering is engaged until the midnight UTC reset.
+
+## 12. Contextual Rule Attribution
+*   **Deterministic Rule Mapping (`ruleAttribution.ts`):** The LLM's raw JSON output is mathematically mapped back to explicit moderation categories (e.g., "Hate or Slur", "Spam or Scam", "Transliteration or Cross-Language Abuse"). 
+*   **Custom Rule Injection:** Administrators can define custom rules (e.g., "No discussion of crypto"). When the AI flags a message under these parameters, it explicitly attributes the flag to "Custom Rule Violation," providing crystalline transparency in the Web Dashboard's ModQueue so moderators understand exactly *why* the neural network took action.

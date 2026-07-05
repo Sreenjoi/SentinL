@@ -1,0 +1,35 @@
+{
+  "commands": {
+    "status": {
+      "description": "Abonnementstatus anzeigen",
+      "response": {
+        "premium": "Dieser Server hat **Premium**-Zugang. Läuft ab am: {expiry}",
+        "trial": "Dieser Server hat **Test**-Zugang. Noch {days} Tage verbleibend.",
+        "free": "Dieser Server befindet sich in der **Kostenlosen** Stufe. Verwenden Sie `/start_trial` oder `/subscribe` zum Upgrade."
+      }
+    },
+    "addrule": {
+      "description": "Eine benutzerdefinierte Moderationsregel hinzufügen",
+      "success": "Regel hinzugefügt: {rule}",
+      "error": "Regel konnte nicht hinzugefügt werden. Stellen Sie sicher, dass der Text nicht leer ist und unter 500 Zeichen liegt."
+    },
+    "language": {
+      "set_success": "Serversprache wurde eingestellt auf: **{lang}**",
+      "view": "Aktuelle Serversprache ist: **{lang}**"
+    }
+  },
+  "common": {
+    "yes": "Ja",
+    "no": "Nein",
+    "cancel": "Abbrechen",
+    "confirm": "Bestätigen",
+    "loading": "Laden...",
+    "error": "Ein Fehler ist aufgetreten. Bitte versuchen Sie es später noch einmal."
+  },
+  "moderation": {
+    "flagged": "Nachricht markiert als {level} (Vertrauen {conf}%)",
+    "auto_deleted": "Automatisch gelöscht wegen hohem Vertrauen",
+    "timeout": "Benutzer für {duration} Minuten gesperrt",
+    "warn": "Benutzer gewarnt: {reason}"
+  }
+}

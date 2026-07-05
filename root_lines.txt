@@ -1,0 +1,26 @@
+684:if (process.env.NODE_ENV !== "production") {
+725:if (!APP_URL) {
+738:try {
+1171:if ((global as any).__botClientGhost) {
+6703:Your task is a universal quick-triage for obvious violations (Spam, Moderate, Inappropriate, Extreme violations). Do NOT worry about custom server rules, just basic safety and common sense.
+6704:Critically: Detect abuse written across languages, including words from one language typed using another writing system. Do not copy examples into the reason. In the reason, describe the actual detected language/category only if you are confident. If the message is English profanity, describe it as English profanity.
+6705:If the message contains unfamiliar slang, romanized non-English words, mixed-language insults, or uncertain short direct-address language, do not confidently mark it Safe. Use lower confidence so the system can run a fuller review.
+6706:If router_hint says a message may contain targeted sarcasm, baiting, or veiled judgment, do not mark it Safe with high confidence unless it is clearly friendly. Use lower confidence when unsure.
+6707:Respond strictly in JSON format as an object with a "results" array matching this structure:
+6721:Always return the object with a "results" array containing one object for every input message.
+6722:Respond ONLY with the JSON object. Do not ask for hidden chain-of-thought.`;
+6726:Check whether the message is profanity, harassment, slang abuse, or transliterated abuse in any major language.
+6727:Detect abuse written across languages, including words from one language typed using another writing system. Do not copy examples into the reason.
+6728:If the message is English profanity, describe it as English profanity. Do not call it Hindi, Bengali, Spanish, or any other language unless the message actually belongs to that language.
+6729:If uncertain about the slang, return low confidence instead of Safe.
+6730:Respond strictly in JSON format as an object with a "results" array matching this structure:
+6744:Always return the object with a "results" array containing one object for every input message.
+6745:Respond ONLY with the JSON object. Do not ask for hidden chain-of-thought.`;
+6752:Server rules:
+6764:CRITICAL MODERATION & LANGUAGE LOGIC (MANDATORY):
+6765:PRIVATE DECISION CHECKLIST (MANDATORY):
+6766:Use this private checklist to evaluate the text internally before emitting the final JSON. Do not output your thinking steps. Do not use chain-of-thought.
+6778:Respond strictly in JSON format as an object with a "results" array matching this structure:
+6792:Always return the object with a "results" array containing one object for every input message.
+6793:Respond ONLY with the JSON object. Do not ask for hidden chain-of-thought.`;
+6796:User Messages:

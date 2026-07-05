@@ -1,0 +1,17 @@
+{
+  "name": "sentinl-discord-bot",
+  "version": "1.0.0",
+  "description": "The background discord bot script for the SentinL dashboard.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "@google/genai": "latest",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5",
+    "firebase-admin": "^12.0.0"
+  }
+}

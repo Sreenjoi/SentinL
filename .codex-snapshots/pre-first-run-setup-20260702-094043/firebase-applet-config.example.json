@@ -1,0 +1,9 @@
+{
+  "apiKey": "YOUR_VALUE_HERE",
+  "authDomain": "YOUR_VALUE_HERE",
+  "projectId": "YOUR_VALUE_HERE",
+  "storageBucket": "YOUR_VALUE_HERE",
+  "messagingSenderId": "YOUR_VALUE_HERE",
+  "appId": "YOUR_VALUE_HERE",
+  "firestoreDatabaseId": "YOUR_VALUE_HERE"
+}

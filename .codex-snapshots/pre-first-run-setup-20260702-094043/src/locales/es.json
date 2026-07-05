@@ -1,0 +1,35 @@
+{
+  "commands": {
+    "status": {
+      "description": "Mostrar estado de suscripción",
+      "response": {
+        "premium": "Este servidor tiene acceso **Premium**. Expira: {expiry}",
+        "trial": "Este servidor tiene acceso de **Prueba**. Quedan {days} días.",
+        "free": "Este servidor está en el nivel **Gratuito**. Usa `/start_trial` o `/subscribe` para mejorar."
+      }
+    },
+    "addrule": {
+      "description": "Añadir una regla de moderación personalizada",
+      "success": "Regla añadida: {rule}",
+      "error": "Error al añadir la regla. Asegúrate de que el texto no esté vacío y tenga menos de 500 caracteres."
+    },
+    "language": {
+      "set_success": "El idioma del servidor se ha configurado en: **{lang}**",
+      "view": "El idioma actual del servidor es: **{lang}**"
+    }
+  },
+  "common": {
+    "yes": "Sí",
+    "no": "No",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "loading": "Cargando...",
+    "error": "Ocurrió un error. Por favor, inténtalo de nuevo más tarde."
+  },
+  "moderation": {
+    "flagged": "Mensaje marcado como {level} (confianza {conf}%)",
+    "auto_deleted": "Eliminado automáticamente debido a la alta confianza",
+    "timeout": "Usuario silenciado durante {duration} minutos",
+    "warn": "Usuario advertido: {reason}"
+  }
+}

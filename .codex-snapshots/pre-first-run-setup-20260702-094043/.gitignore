@@ -1,0 +1,52 @@
+**/node_modules/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+discord-bot-ready.zip
+dist/
+!.npmrc
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+
+# debug files
+scripts/debug/
+debug.json
+msg.txt
+DRAFT_*.rules
+DRAFT_*
+
+# Developer test scripts
+get_logs.ts
+readBotLogs.ts
+calc_perms.ts
+worker/
+
+# Developer test scripts
+# temporary local testing scripts
+reactivate-user.ts
+fetch-servers.ts
+
+# debug outputs
+appout.txt
+matching.txt
+matching_blocks.txt
+out.txt
+test.txt
+failure_report.json
+quota_report.json
+test_quota.js
+test_output.txt
+test_sarcasm.ts
+
+# archive
+archive/
+scripts/archive/
+deploy.backup.sh
+
+# Firebase config
+firebase-applet-config.json

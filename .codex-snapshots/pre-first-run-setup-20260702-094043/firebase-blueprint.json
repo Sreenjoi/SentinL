@@ -1,0 +1,351 @@
+{
+  "entities": {
+    "ServerSettings": {
+      "title": "ServerSettings",
+      "description": "Settings for a Discord server",
+      "type": "object",
+      "properties": {
+        "modRoleId": { "type": "string" },
+        "logChannelId": { "type": "string" },
+        "confidenceThreshold": { "type": "number" },
+        "autoDelete": { "type": "boolean" },
+        "active": { "type": "boolean" },
+        "ownerEmail": { "type": "string" },
+        "language": { "type": "string", "default": "en" },
+        "lastCommandSync": { "type": "string", "format": "date-time" }
+      },
+      "required": ["confidenceThreshold", "autoDelete"]
+    },
+    "ServerRule": {
+      "title": "ServerRule",
+      "description": "A custom moderation rule for a server",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "authorId": { "type": "string" }
+      },
+      "required": ["text", "createdAt", "authorId"]
+    },
+    "FlaggedMessage": {
+      "title": "FlaggedMessage",
+      "description": "A message flagged by the AI moderator",
+      "type": "object",
+      "properties": {
+        "serverId": { "type": "string" },
+        "channelId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorUsername": { "type": "string" },
+        "content": { "type": "string" },
+        "verdict": { "type": "string" },
+        "confidence": { "type": "number" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "resolved"] },
+        "actionTaken": { "type": "string", "enum": ["none", "approved", "deleted", "timeout", "warned"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["serverId", "channelId", "authorId", "content", "verdict", "confidence", "reason", "status", "timestamp"]
+    },
+    "DashboardUser": {
+      "title": "DashboardUser",
+      "description": "Unique user data",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "createdAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "A dashboard user (moderator/admin)",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "serverIds": { "type": "array", "items": { "type": "string" } },
+        "role": { "type": "string", "enum": ["moderator", "admin"] }
+      },
+      "required": ["email", "serverIds", "role"]
+    },
+    "Subscription": {
+      "title": "Subscription",
+      "description": "Server subscription status for tiers",
+      "type": "object",
+      "properties": {
+        "trialStart": { "type": "string", "format": "date-time" },
+        "trialEnd": { "type": "string", "format": "date-time" },
+        "trialUsed": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["trial", "active", "expired", "free"] },
+        "paidPlan": { "type": "string", "enum": ["none", "single"] },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "accessTier": { "type": "string", "enum": ["free", "premium"] }
+      },
+      "required": ["status", "trialUsed"]
+    },
+    "Moderator": {
+      "title": "Moderator",
+      "description": "A dashboard user identified by email",
+      "type": "object",
+      "properties": {
+        "serverIds": { "type": "array", "items": { "type": "string" } },
+        "serverNames": { "type": "object", "additionalProperties": { "type": "string" } },
+        "discordId": { "type": "string" },
+        "discordUsername": { "type": "string" },
+        "activeServerId": { "type": "string" }
+      },
+      "required": ["serverIds"]
+    },
+    "TrainingData": {
+      "title": "TrainingData",
+      "description": "Feedback provided by moderators to train the AI",
+      "type": "object",
+      "properties": {
+        "messageId": { "type": "string" },
+        "correctedLevel": { "type": "string", "enum": ["Extreme", "Inappropriate", "Moderate", "Spam"] },
+        "trainedBy": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["messageId", "correctedLevel", "trainedBy", "timestamp"]
+    },
+    "ReactionRolePanel": {
+      "title": "ReactionRolePanel",
+      "description": "A reaction role configuration panel",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "roleId": { "type": "string" },
+              "label": { "type": "string" },
+              "style": { "type": "number" }
+            }
+          }
+        },
+        "channelId": { "type": "string" },
+        "messageId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "roles", "channelId"]
+    },
+    "ServerSubscriptionLink": {
+      "title": "ServerSubscriptionLink",
+      "description": "Links a server to an owner's subscription",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" }
+      },
+      "required": ["ownerId"]
+    },
+    "LevelingSettings": {
+      "title": "LevelingSettings",
+      "description": "Settings for the Discord Leveling & XP system",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "xpMultiplier": { "type": "number" },
+        "cooldownSeconds": { "type": "number" },
+        "xpMin": { "type": "number" },
+        "xpMax": { "type": "number" },
+        "levelDivisor": { "type": "number" },
+        "ignoredChannels": { "type": "array", "items": { "type": "string" } },
+        "ignoredRoles": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["enabled", "xpMultiplier", "cooldownSeconds", "xpMin", "xpMax", "levelDivisor"]
+    },
+    "RoleReward": {
+      "title": "RoleReward",
+      "description": "A role automatically assigned at a specific level",
+      "type": "object",
+      "properties": {
+        "roleId": { "type": "string" }
+      },
+      "required": ["roleId"]
+    },
+    "UserExperience": {
+      "title": "UserExperience",
+      "description": "XP tracking for a user in a specific server",
+      "type": "object",
+      "properties": {
+        "totalXp": { "type": "number" },
+        "level": { "type": "number" },
+        "lastMessageTimestamp": { "type": "number" }
+      },
+      "required": ["totalXp", "level", "lastMessageTimestamp"]
+    },
+    "AnalyticsMessages": {
+      "title": "AnalyticsMessages",
+      "description": "Hourly message statistics",
+      "type": "object",
+      "properties": {
+        "total": { "type": "number" },
+        "channels": { "type": "object", "additionalProperties": { "type": "number" } },
+        "attachments": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      }
+    },
+    "AnalyticsMembers": {
+      "title": "AnalyticsMembers",
+      "description": "Daily member growth statistics",
+      "type": "object",
+      "properties": {
+        "joins": { "type": "number" },
+        "leaves": { "type": "number" },
+        "total": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      }
+    },
+    "AnalyticsModeration": {
+      "title": "AnalyticsModeration",
+      "description": "Daily moderation effectiveness statistics",
+      "type": "object",
+      "properties": {
+        "actions_Extreme": { "type": "number" },
+        "actions_Inappropriate": { "type": "number" },
+        "actions_Moderate": { "type": "number" },
+        "actions_Spam": { "type": "number" },
+        "total": { "type": "number" }
+      }
+    },
+    "Giveaway": {
+      "title": "Giveaway",
+      "description": "A giveaway configured for a Discord server",
+      "type": "object",
+      "properties": {
+        "prize": { "type": "string" },
+        "winnersCount": { "type": "number" },
+        "durationHours": { "type": "number" },
+        "channelId": { "type": "string" },
+        "requirements": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "ended"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "endsAt": { "type": "string", "format": "date-time" },
+        "participants": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "participantsCount": { "type": "number" },
+        "winners": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["prize", "winnersCount", "durationHours", "channelId", "status", "createdAt", "endsAt"]
+    },
+    "CustomCommand": {
+      "title": "CustomCommand",
+      "description": "A custom slash command generated by the user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "isLocked": { "type": "boolean" },
+        "actions": {
+          "type": "array",
+          "items": { "type": "object" }
+        }
+      },
+      "required": ["id", "name", "description", "actions"]
+    },
+    "SocialIntegration": {
+      "title": "SocialIntegration",
+      "description": "Configuration for a social media update feed",
+      "type": "object",
+      "properties": {
+        "platform": { "type": "string", "enum": ["youtube", "twitch"] },
+        "targetId": { "type": "string" },
+        "targetName": { "type": "string" },
+        "targetUrl": { "type": "string" },
+        "announcementChannelId": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "lastProcessedId": { "type": "string" },
+        "pingRoleId": { "type": "string" },
+        "includeShorts": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["platform", "targetId", "announcementChannelId", "enabled"]
+    }
+  },
+  "firestore": {
+    "analytics/{serverId}/messages/{hourId}": {
+      "schema": { "$ref": "#/entities/AnalyticsMessages" },
+      "description": "Hourly message volume and channel distribution"
+    },
+    "analytics/{serverId}/members/{dateId}": {
+      "schema": { "$ref": "#/entities/AnalyticsMembers" },
+      "description": "Daily member join/leave activity and community size"
+    },
+    "analytics/{serverId}/moderation/{dateId}": {
+      "schema": { "$ref": "#/entities/AnalyticsModeration" },
+      "description": "Daily AI moderation performance and action counts"
+    },
+    "subscriptions/{id}": {
+      "schema": { "$ref": "#/entities/Subscription" },
+      "description": "Subscription tier for a server (id=serverId) or a user (id=userId). Trials are bound to userId to prevent abuse."
+    },
+    "moderators/{email}": {
+      "schema": { "$ref": "#/entities/Moderator" },
+      "description": "Dashboard users and their authorized servers"
+    },
+    "servers/{serverId}": {
+      "schema": { "$ref": "#/entities/ServerSettings" },
+      "description": "Settings for each Discord server"
+    },
+    "servers/{serverId}/integrations/{integrationId}": {
+      "schema": { "$ref": "#/entities/SocialIntegration" },
+      "description": "Social media update integrations (YouTube, Twitch)"
+    },
+    "servers/{serverId}/rules/{ruleId}": {
+      "schema": { "$ref": "#/entities/ServerRule" },
+      "description": "Custom rules for a Discord server"
+    },
+    "servers/{serverId}/custom_commands/{commandId}": {
+      "schema": { "$ref": "#/entities/CustomCommand" },
+      "description": "Custom slash commands for a Discord server"
+    },
+    "servers/{serverId}/giveaways/{giveawayId}": {
+      "schema": { "$ref": "#/entities/Giveaway" },
+      "description": "Giveaways for a server"
+    },
+    "servers/{serverId}/offenders/{offenderId}": {
+      "schema": { "$ref": "#/entities/Offender" },
+      "description": "Repeat offenders for a Discord server"
+    },
+    "flaggedMessages/{messageId}": {
+      "schema": { "$ref": "#/entities/FlaggedMessage" },
+      "description": "Messages flagged by the AI"
+    },
+    "training/{messageId}": {
+      "schema": { "$ref": "#/entities/TrainingData" },
+      "description": "Training feedback for AI moderation"
+    },
+    "server_subscriptions/{serverId}": {
+      "schema": { "$ref": "#/entities/ServerSubscriptionLink" },
+      "description": "Links a server to an owner's subscription"
+    },
+    "servers/{serverId}/reactionRoles/{panelId}": {
+      "schema": { "$ref": "#/entities/ReactionRolePanel" },
+      "description": "Reaction role panels for a server"
+    },
+    "servers/{serverId}/leveling/settings": {
+      "schema": { "$ref": "#/entities/LevelingSettings" },
+      "description": "Leveling and XP configuration for a server"
+    },
+    "servers/{serverId}/roleRewards/{level}": {
+      "schema": { "$ref": "#/entities/RoleReward" },
+      "description": "Role rewards for reaching a specific level"
+    },
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/DashboardUser" },
+      "description": "Information for each unique dashboard user"
+    },
+    "users/{userId}/xp/{serverId}": {
+      "schema": { "$ref": "#/entities/UserExperience" },
+      "description": "Per-server XP data for a user"
+    }
+  }
+}
