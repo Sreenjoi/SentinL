@@ -1,0 +1,584 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // 0. Global Safety Net
+    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Global Helpers
+    // ===============================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string;
+    }
+
+    function isOwner(userId) {
+      return isVerified() && request.auth.uid == userId;
+    }
+
+    function isSuperAdmin() {
+      return isVerified() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isModeratorDoc(email) {
+      return isVerified() && request.auth.token.email == email;
+    }
+
+    function getModeratorData() {
+      let email = request.auth != null && request.auth.token != null ? request.auth.token.email : null;
+      let modPath = email != null ? path('/databases/' + database + '/documents/moderators/' + email) : null;
+      return modPath != null && exists(modPath) ? get(modPath).data : null;
+    }
+
+    function getModeratorServers() {
+      let modData = getModeratorData();
+      return modData != null && modData.keys().hasAll(['serverIds']) ? modData.serverIds : [];
+    }
+
+    function isModeratorOf(serverId) {
+      // Prioritize isSuperAdmin check
+      let modData = getModeratorData();
+      return isSuperAdmin() || (
+        isVerified() && 
+        modData != null &&
+        'serverIds' in modData &&
+        // We ensure serverIds is a list, but also use hasAny for safety.
+        modData.serverIds is list &&
+        modData.serverIds.hasAny([serverId])
+      );
+    }
+
+    // ===============================================================
+    // Validation Helpers
+    // ===============================================================
+
+    function isValidModerator(data) {
+      let usernameOk = !('discordUsername' in data) || (data.discordUsername is string && data.discordUsername.size() <= 128);
+      let avatarOk = !('discordAvatar' in data) || (data.discordAvatar is string && data.discordAvatar.size() <= 2048);
+      return data.keys().hasAll(['serverIds'])
+        && data.serverIds is list
+        && data.serverIds.size() <= 100
+        && usernameOk && avatarOk;
+    }
+
+    
+    function isSubscriptionValid(sub, serverId) {
+      if (sub == null) return false;
+      let isActive = sub.data.get('accessTier', 'free') != 'free' && sub.data.get('status', '') == 'active';
+      let isNotExpired = ('expiresAt' in sub.data) && sub.data.expiresAt is timestamp && sub.data.expiresAt > request.time;
+      let isTrial = sub.data.get('accessTier', 'free') != 'free' && sub.data.get('status', '') == 'trial';
+      let isTrialNotExpired = ('trialEnd' in sub.data) && sub.data.trialEnd is timestamp && sub.data.trialEnd > request.time;
+      let isBetaTester = sub.data.get('isBetaTester', false) == true;
+      let hasLink = sub.data.get('linkedServerIds', []).hasAny([serverId]);
+      
+      return ((isActive && isNotExpired) || (isTrial && isTrialNotExpired) || isBetaTester) && hasLink;
+    }
+
+    function hasPaidAccess(serverId) {
+      let svr = get(/databases/$(database)/documents/servers/$(serverId));
+      let isServerBeta = svr != null && svr.data.get('isBetaTester', false) == true && (
+         ('betaExpiry' in svr.data) && svr.data.betaExpiry is timestamp && svr.data.betaExpiry > request.time
+      );
+
+      let dSub = get(/databases/$(database)/documents/subscriptions/$(serverId));
+      let hasDirect = isSubscriptionValid(dSub, serverId);
+      
+      let link = get(/databases/$(database)/documents/server_subscriptions/$(serverId));
+      let ownerId = link != null ? link.data.ownerId : '___none___';
+      let uSub = get(/databases/$(database)/documents/subscriptions/$(ownerId));
+      let hasOwner = isSubscriptionValid(uSub, serverId);
+      
+      return hasDirect || hasOwner || isServerBeta;
+    }
+
+    function isHealthDataSafe() {
+      let oldHealth = existing().get('healthWidget', {});
+      let curHealth = incoming().get('healthWidget', {});
+      let modifiableKeys = ['enabled', 'channelId', 'color', 'badgeStyle', 'motto', 'announceMilestones', 'recoveryMessages', 'communityRewards', 'milestoneChannelId', 'milestoneMessage'];
+      return curHealth.diff(oldHealth).affectedKeys().hasOnly(modifiableKeys);
+    }
+
+    function isPaidFieldChanged() {
+      let autoDelChanged = incoming().get('autoDelete', false) != existing().get('autoDelete', false);
+      let contextChanged = incoming().get('useContext', false) != existing().get('useContext', false);
+      let primaryConfChanged = incoming().get('primaryConfidenceThreshold', 80) != existing().get('primaryConfidenceThreshold', 80);
+      let dualModelChanged = incoming().get('enableDualModel', false) != existing().get('enableDualModel', false);
+      let digestEnabledChanged = incoming().get('weeklyDigestEnabled', false) != existing().get('weeklyDigestEnabled', false);
+      let digestChannelChanged = incoming().get('digestChannelId', '') != existing().get('digestChannelId', '');
+
+      let basePaidChanged = autoDelChanged || contextChanged || primaryConfChanged || dualModelChanged || digestEnabledChanged || digestChannelChanged;
+      
+      let oldHealth = existing().get('healthWidget', {});
+      let curHealth = incoming().get('healthWidget', {});
+      let healthPaidKeys = ['color', 'badgeStyle', 'motto', 'announceMilestones', 'recoveryMessages', 'communityRewards', 'milestoneChannelId', 'milestoneMessage'];
+      let healthPaidChanged = curHealth.diff(oldHealth).affectedKeys().hasAny(healthPaidKeys);
+
+      return basePaidChanged || healthPaidChanged;
+    }
+
+    function isValidServer(data) {
+      let conf = data.get('confidenceThreshold', 80);
+      let pConf = data.get('primaryConfidenceThreshold', 80);
+      let keywordsOk = !('keywords' in data) || (data.keywords is list && data.keywords.size() <= 100);
+      let nameOk = !('name' in data) || (data.name is string && data.name.size() <= 128);
+      let serverNameOk = !('serverName' in data) || (data.serverName is string && data.serverName.size() <= 128);
+      let onboardingOk = !('onboarding' in data)
+        || (data.onboarding is map
+          && data.onboarding.keys().hasOnly(['firstRunCompleted', 'completedAt', 'completedBy', 'completionMode'])
+          && data.onboarding.get('firstRunCompleted', false) is bool
+          && data.onboarding.get('completedBy', '') is string
+          && data.onboarding.get('completedBy', '').size() <= 128
+          && data.onboarding.get('completionMode', 'finish') in ['finish', 'skip']);
+      
+      let boolsOk = data.get('autoDelete', false) is bool 
+                 && data.get('autoDeleteOnKeywordMatch', false) is bool
+                 && data.get('useContext', false) is bool
+                 && data.get('enableDualModel', false) is bool
+                 && data.get('weeklyDigestEnabled', false) is bool;
+
+      return (conf is number) && (conf >= 50) && (conf <= 100)
+        && (pConf is number) && (pConf >= 50) && (pConf <= 100)
+        && boolsOk
+        && keywordsOk && nameOk && serverNameOk && onboardingOk;
+    }
+
+    function isValidRule(data) {
+      return data.keys().hasAll(['text', 'createdAt'])
+        && data.text is string && data.text.size() <= 2000
+        && (data.createdAt is string || data.createdAt is timestamp);
+    }
+
+    function isValidFlaggedMessage(data) {
+      return data.keys().hasAll(['serverId', 'channelId', 'authorId', 'authorUsername', 'content', 'level', 'confidence', 'reason', 'status', 'timestamp'])
+        && data.serverId is string && isValidId(data.serverId)
+        && data.channelId is string && data.channelId.size() <= 64
+        && data.authorId is string && data.authorId.size() <= 64
+        && data.authorUsername is string && data.authorUsername.size() <= 128
+        && data.content is string && data.content.size() <= 5000
+        && data.level in ['Extreme', 'Inappropriate', 'Moderate', 'Spam', 'Safe']
+        && data.confidence is number
+        && data.status is string;
+    }
+
+    function isValidTraining(data) {
+      return data.keys().hasOnly(['messageId', 'serverId', 'correctedLevel', 'trainedBy', 'timestamp', 'moderatorReason', 'originalLevel'])
+        && data.keys().hasAll(['messageId', 'serverId', 'correctedLevel', 'trainedBy', 'timestamp'])
+        && data.messageId is string && isValidId(data.messageId)
+        && data.serverId is string && isValidId(data.serverId)
+        && data.correctedLevel in ['Extreme', 'Inappropriate', 'Moderate', 'Spam', 'Safe']
+        && (data.trainedBy == request.auth.token.email || data.trainedBy == "unknown")
+        && (!('moderatorReason' in data) || data.moderatorReason is string && data.moderatorReason.size() <= 1000)
+        && (!('originalLevel' in data) || data.originalLevel in ['Extreme', 'Inappropriate', 'Moderate', 'Spam', 'Safe'])
+        && data.timestamp is string;
+    }
+
+    function isValidReactionPanel(data) {
+      return data.keys().hasAll(['title', 'roles', 'channelId'])
+        && data.title is string && data.title.size() <= 200
+        && data.roles is list && data.roles.size() <= 25
+        && data.channelId is string;
+    }
+
+    function isValidOffender(data) {
+      return data.keys().hasAll(['authorId', 'authorUsername', 'score', 'flaggedCount', 'lastUpdated'])
+        && data.authorId is string && data.authorId.size() <= 64
+        && data.authorUsername is string && data.authorUsername.size() <= 128
+        && data.score is number && data.score >= 0 && data.score <= 1000000
+        && data.flaggedCount is number && data.flaggedCount >= 0 && data.flaggedCount <= 1000000
+        && data.lastUpdated is string;
+    }
+
+    function isValidLevelingSettings(data) {
+      return data.keys().hasAll(['enabled', 'xpMultiplier', 'cooldownSeconds', 'xpMin', 'xpMax', 'levelDivisor'])
+        && data.enabled is bool
+        && data.xpMultiplier is number && data.xpMultiplier >= 0 && data.xpMultiplier <= 100
+        && data.cooldownSeconds is number && data.cooldownSeconds >= 15 && data.cooldownSeconds <= 300
+        && data.xpMin is number && data.xpMax is number && data.xpMin >= 0 && data.xpMax >= data.xpMin && data.xpMax <= 1000
+        && data.levelDivisor is number && data.levelDivisor >= 1 && data.levelDivisor <= 10000;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasOnly(['email', 'createdAt', 'lastLogin', 'displayName', 'photoURL'])
+        && data.keys().hasAll(['email', 'createdAt'])
+        && data.email is string
+        && data.email == request.auth.token.email
+        && (!('displayName' in data) || data.displayName == null || data.displayName is string)
+        && (!('photoURL' in data) || data.photoURL == null || data.photoURL is string)
+        && (!('lastLogin' in data) || data.lastLogin is string || data.lastLogin is timestamp)
+        && (data.createdAt is string || data.createdAt is timestamp);
+    }
+
+    function isValidRoleReward(data) {
+      return data.keys().hasAll(['roleId']) && data.roleId is string && data.roleId.size() <= 64;
+    }
+
+    function isValidUserExperience(data) {
+      return data.keys().hasAll(['totalXp', 'level', 'lastMessageTimestamp'])
+        && data.totalXp is number
+        && data.level is number
+        && data.lastMessageTimestamp is number;
+    }
+
+    function isValidAction(data) {
+      return data.keys().hasAll(['id', 'type'])
+        && data.id is string
+        && data.type in ['send_message', 'add_role', 'remove_role', 'dm_user'];
+    }
+
+    function isValidCustomCommand(data) {
+      return data.keys().hasAll(['id', 'name', 'description', 'actions'])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 128
+        && data.description is string && data.description.size() <= 1024
+        && data.actions is list && data.actions.size() <= 50;
+    }
+
+    function isValidErrorLog(data) {
+      return data.keys().hasOnly(['error', 'operationType', 'path', 'authInfo', 'timestamp', 'userId', 'serverId'])
+        && data.keys().hasAll(['error', 'operationType', 'path'])
+        && data.error is string && data.error.size() <= 2000
+        && data.operationType in ['create', 'update', 'delete', 'list', 'get', 'write']
+        && (data.path == null || (data.path is string && data.path.size() <= 1024))
+        && (!('authInfo' in data) || (
+              data.authInfo is map 
+              && (!('userId' in data.authInfo) || data.authInfo.userId == null || (data.authInfo.userId is string && data.authInfo.userId.size() <= 64))
+              && (!('email' in data.authInfo) || data.authInfo.email == null || (data.authInfo.email is string && data.authInfo.email.size() <= 128))
+        ))   
+        && (!('timestamp' in data) || data.timestamp is timestamp || data.timestamp is string)
+        && (!('userId' in data) || (data.userId is string && data.userId.size() <= 64))
+        && (!('serverId' in data) || (data.serverId is string && data.serverId.size() <= 64));
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    function isValidGiveaway(data) {
+      return data.keys().hasAll(['prize', 'winnersCount', 'durationHours', 'channelId', 'status', 'createdAt', 'endsAt', 'serverId'])
+        && data.prize is string && data.prize.size() <= 200
+        && data.winnersCount is number
+        && data.durationHours is number
+        && data.channelId is string && data.channelId.size() <= 64
+        && data.status in ['active', 'ended']
+        && data.createdAt is timestamp
+        && data.endsAt is string
+        && (!('requirements' in data) || (data.requirements is string && data.requirements.size() <= 100))
+        && (!('participants' in data) || data.participants is list)
+        && (!('participantsCount' in data) || data.participantsCount is number)
+        && (!('winners' in data) || data.winners is list);
+    }
+
+    function isValidReport(data) {
+      let baseValid = data.keys().hasAll(['reporterId', 'reportedUserId', 'reason', 'status', 'timestamp'])
+        && data.reporterId is string
+        && data.reportedUserId is string
+        && data.reason is string && data.reason.size() <= 500
+        && data.status in ['pending', 'approved', 'dismissed', 'actioned'];
+      let reportedUsernameValid = !('reportedUsername' in data) || (data.reportedUsername is string);
+      let reporterUsernameValid = !('reporterUsername' in data) || (data.reporterUsername is string);
+      return baseValid && reportedUsernameValid && reporterUsernameValid;
+    }
+
+    function isValidReportSettings(data) {
+      return data.keys().hasAll(['cooldown', 'notifyReporter'])
+        && data.cooldown is number && data.cooldown >= 0 && data.cooldown <= 86400
+        && data.notifyReporter is bool;
+    }
+
+    function isValidOnboardingConfig(data) {
+      return (!('welcomeChannelId' in data) || data.welcomeChannelId is string && data.welcomeChannelId.size() <= 64)
+        && (!('welcomeMessage' in data) || data.welcomeMessage is string && data.welcomeMessage.size() <= 2000)
+        && (!('dmWelcomeEnabled' in data) || data.dmWelcomeEnabled is bool)
+        && (!('channelWelcomeEnabled' in data) || data.channelWelcomeEnabled is bool)
+        && (!('verifiedRoleId' in data) || data.verifiedRoleId is string && data.verifiedRoleId.size() <= 64)
+        && (!('verificationChannelId' in data) || data.verificationChannelId is string && data.verificationChannelId.size() <= 64)
+        && (!('verificationMessage' in data) || data.verificationMessage is string && data.verificationMessage.size() <= 2000);
+    }
+
+    function isValidIntegration(data) {
+      return data.keys().hasAll(['platform', 'targetId', 'announcementChannelId', 'enabled'])
+        && data.platform in ['youtube', 'twitch']
+        && data.targetId is string && data.targetId.size() <= 256
+        && data.announcementChannelId is string && data.announcementChannelId.size() <= 64
+        && data.enabled is bool;
+    }
+
+    function isValidModAction(data) {
+      return data.keys().hasOnly(['serverId', 'type', 'timestamp', 'reason', 'userId', 'moderatorId', 'caseId', 'duration', 'messageId', 'channelId', 'userName'])
+        && data.keys().hasAll(['serverId', 'type', 'timestamp'])
+        && data.serverId is string && data.serverId.size() <= 64
+        && data.type is string && data.type.size() <= 64
+        && (!('reason' in data) || data.reason is string && data.reason.size() <= 1000)
+        && (!('userId' in data) || data.userId is string && data.userId.size() <= 64)
+        && (!('moderatorId' in data) || data.moderatorId is string && data.moderatorId.size() <= 64)
+        && (!('caseId' in data) || data.caseId is string && data.caseId.size() <= 64)
+        && (!('duration' in data) || data.duration is number || data.duration is string)
+        && (!('messageId' in data) || data.messageId is string && data.messageId.size() <= 64)
+        && (!('channelId' in data) || data.channelId is string && data.channelId.size() <= 64)
+        && (!('userName' in data) || data.userName is string && data.userName.size() <= 128);
+    }
+
+    match /moderators/{email} {
+      allow list: if false;
+      allow get: if isModeratorDoc(email) || isSuperAdmin();
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin();
+    }
+
+    match /subscriptions/{id} {
+      allow get: if isOwner(id) || (isValidId(id) && isModeratorOf(id)) || isSuperAdmin() || (resource != null && resource.data.keys().hasAll(['linkedServerIds']) && resource.data.linkedServerIds.hasAny(getModeratorServers()));
+      allow list: if isSuperAdmin();
+      allow write: if false;
+    }
+
+    match /servers/{serverId} {
+      allow get: if isValidId(serverId) && (isModeratorOf(serverId) || isSuperAdmin());
+      allow create: if isValidId(serverId) && isModeratorOf(serverId) && isValidServer(incoming());
+      allow update: if isValidId(serverId) && isModeratorOf(serverId)
+                    && isValidServer(incoming())
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['modRoleId', 'logChannelId', 'confidenceThreshold', 'autoDelete', 'lastCommandSync', 'language', 'keywords', 'autoDeleteOnKeywordMatch', 'useContext', 'primaryConfidenceThreshold', 'autorole', 'name', 'serverName', 'enableDualModel', 'healthWidget', 'weeklyDigestEnabled', 'digestChannelId', 'onboarding'])
+                    && (!isPaidFieldChanged() || hasPaidAccess(serverId) || isSuperAdmin())
+                    && isHealthDataSafe();
+      
+      match /rules/{ruleId} {
+        allow get: if isValidId(ruleId) && isModeratorOf(serverId);
+        allow list: if isModeratorOf(serverId);
+        allow create: if isValidId(ruleId) && isModeratorOf(serverId) && isValidRule(incoming());
+        allow delete: if isValidId(ruleId) && isModeratorOf(serverId);
+      }
+
+      match /custom_commands/{commandId} {
+        allow get: if isValidId(commandId) && isModeratorOf(serverId);
+        allow list: if isModeratorOf(serverId);
+        allow create: if isValidId(commandId) && isModeratorOf(serverId) && isValidCustomCommand(incoming()) && (isSuperAdmin() || hasPaidAccess(serverId));
+        allow update: if isValidId(commandId) && isModeratorOf(serverId) && isValidCustomCommand(incoming()) && (isSuperAdmin() || hasPaidAccess(serverId));
+        allow delete: if isValidId(commandId) && isModeratorOf(serverId) && (isSuperAdmin() || hasPaidAccess(serverId));
+      }
+
+      match /offenders/{offenderId} {
+        allow get: if isValidId(offenderId) && isModeratorOf(serverId);
+        allow list: if isModeratorOf(serverId);
+        allow create: if isValidId(offenderId) && isModeratorOf(serverId) && isValidOffender(incoming()) && incoming().authorId == offenderId;
+        allow update: if isValidId(offenderId) && isModeratorOf(serverId) && isValidOffender(incoming()) && incoming().authorId == offenderId;
+      }
+
+      match /reactionRoles/{panelId} {
+        allow get: if isValidId(panelId) && (isModeratorOf(serverId) || isSuperAdmin());
+        allow list: if isModeratorOf(serverId) || isSuperAdmin();
+        allow create: if isValidId(panelId) && isModeratorOf(serverId) && isValidReactionPanel(incoming());
+        allow update: if isValidId(panelId) && isModeratorOf(serverId) && isValidReactionPanel(incoming());
+        allow delete: if isValidId(panelId) && isModeratorOf(serverId);
+      }
+
+      match /leveling/settings {
+        allow get: if isValidId(serverId) && (isModeratorOf(serverId) || isSuperAdmin());
+        allow create: if isModeratorOf(serverId) && isValidLevelingSettings(incoming()) && incoming().keys().hasOnly(['enabled', 'xpMultiplier', 'cooldownSeconds', 'xpMin', 'xpMax', 'levelDivisor']) && (isSuperAdmin() || hasPaidAccess(serverId));
+        allow update: if isModeratorOf(serverId) && isValidLevelingSettings(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['enabled', 'xpMultiplier', 'cooldownSeconds', 'xpMin', 'xpMax', 'levelDivisor']) && (isSuperAdmin() || hasPaidAccess(serverId));
+        allow delete: if isModeratorOf(serverId) && (isSuperAdmin() || hasPaidAccess(serverId));
+      }
+
+      match /leveling_users/{userId} {
+        allow get: if isValidId(serverId) && isValidId(userId) && (isModeratorOf(serverId) || isOwner(userId) || isSuperAdmin());
+        allow list: if isValidId(serverId) && (isModeratorOf(serverId) || isOwner(resource.id) || isSuperAdmin());
+        allow delete: if isValidId(userId) && isModeratorOf(serverId);
+        allow create: if false;
+        allow update: if false;
+      }
+
+      match /roleRewards/{level} {
+        allow get: if isValidId(serverId) && isValidId(level) && (isModeratorOf(serverId) || isSuperAdmin());
+        allow list: if isValidId(serverId) && (isModeratorOf(serverId) || isSuperAdmin());
+        allow create: if isValidId(level) && isModeratorOf(serverId) && isValidRoleReward(incoming()) && incoming().keys().hasOnly(['roleId']) && (isSuperAdmin() || hasPaidAccess(serverId));
+        allow update: if isValidId(level) && isModeratorOf(serverId) && isValidRoleReward(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['roleId']) && (isSuperAdmin() || hasPaidAccess(serverId));
+        allow delete: if isValidId(level) && isModeratorOf(serverId) && (isSuperAdmin() || hasPaidAccess(serverId));
+      }
+
+      match /reports/{reportId} {
+        allow get: if isValidId(reportId) && isModeratorOf(serverId);
+        allow list: if isModeratorOf(serverId);
+        allow create: if isValidId(reportId) && isModeratorOf(serverId) && isValidReport(incoming());
+        allow update: if isValidId(reportId) && isModeratorOf(serverId) && (
+          incoming().get('moderatorId', '') == existing().get('moderatorId', '') || incoming().get('moderatorId', '') == request.auth.uid
+        ) && (
+          incoming().get('assigneeId', '') == existing().get('assigneeId', '') || incoming().get('assigneeId', '') == request.auth.uid || isSuperAdmin()
+        ) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'actionTaken', 'moderatorNotes', 'resolvedAt', 'assigneeId', 'moderatorId', 'reviewStatus', 'updatedAt'])
+          && incoming().get('status', existing().get('status', 'pending')) in ['pending', 'approved', 'dismissed', 'actioned'];
+        allow delete: if false; // Must use audited backend route
+      }
+
+      match /settings/reports {
+        allow get: if isModeratorOf(serverId);
+        allow create: if isModeratorOf(serverId) && isValidReportSettings(incoming()) && incoming().keys().hasOnly(['cooldown', 'notifyReporter']);
+        allow update: if isModeratorOf(serverId) && isValidReportSettings(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['cooldown', 'notifyReporter']);
+        allow delete: if false;
+      }
+
+      match /integrations/{integrationId} {
+        allow get: if isValidId(integrationId) && isModeratorOf(serverId);
+        allow list: if isModeratorOf(serverId);
+        allow create: if isValidId(integrationId) && isModeratorOf(serverId) && isValidIntegration(incoming()) && (isSuperAdmin() || hasPaidAccess(serverId));
+        allow update: if isValidId(integrationId) && isModeratorOf(serverId) && isValidIntegration(incoming()) && (isSuperAdmin() || hasPaidAccess(serverId));
+        allow delete: if isValidId(integrationId) && isModeratorOf(serverId) && (isSuperAdmin() || hasPaidAccess(serverId));
+      }
+
+      match /moderationCases/{caseId} {
+        allow get: if isValidId(caseId) && isModeratorOf(serverId);
+        allow list: if isModeratorOf(serverId);
+        allow write: if false; // Only Admin SDK or specific actions via APIs
+      }
+
+      match /giveaways/{giveawayId} {
+        allow get: if isValidId(giveawayId) && isModeratorOf(serverId);
+        allow list: if isModeratorOf(serverId);
+        allow create: if false; // Must use API /api/guilds/:serverId/giveaways/start
+        allow update: if false; // Must use API wrapper
+        allow delete: if false;
+      }
+
+      match /summaries/{summaryId} {
+        allow get: if isValidId(serverId) && isValidId(summaryId) && (isModeratorOf(serverId) || isSuperAdmin());
+        allow list: if isValidId(serverId) && (isModeratorOf(serverId) || isSuperAdmin());
+        allow write: if false; // Only server writes this
+      }
+
+      match /onboarding/config {
+        allow get: if isModeratorOf(serverId) || isSuperAdmin();
+        allow create: if isModeratorOf(serverId) && isValidOnboardingConfig(incoming()) && incoming().keys().hasOnly(['welcomeChannelId', 'welcomeMessage', 'dmWelcomeEnabled', 'channelWelcomeEnabled', 'verifiedRoleId', 'verificationChannelId', 'verificationMessage']);
+        allow update: if isModeratorOf(serverId) && isValidOnboardingConfig(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['welcomeChannelId', 'welcomeMessage', 'dmWelcomeEnabled', 'channelWelcomeEnabled', 'verifiedRoleId', 'verificationChannelId', 'verificationMessage']);
+        allow delete: if false;
+      }
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isSuperAdmin();
+      allow create: if isOwner(userId) && isValidUser(incoming()) && incoming().email == request.auth.token.email;
+      allow update: if isOwner(userId) && isValidUser(incoming()) && incoming().email == existing().email;
+    }
+
+    match /users/{userId}/xp/{serverId} {
+      allow get, list: if isVerified() && (isOwner(userId) || isModeratorOf(serverId) || isSuperAdmin());
+      allow write: if false; // Only bot should write via service account / admin SDK in worker
+    }
+
+    function isValidReadStatus(data) {
+      return data.keys().hasOnly(['lastReadTimestamp', 'unreadCount'])
+        && (!('lastReadTimestamp' in data) || data.lastReadTimestamp is number || data.lastReadTimestamp is timestamp)
+        && (!('unreadCount' in data) || data.unreadCount is number && data.unreadCount >= 0);
+    }
+
+    match /users/{userId}/readStatus/{serverId} {
+      allow get, list: if isOwner(userId) && isValidId(serverId);
+      allow create, update: if isOwner(userId) && isValidId(serverId) && isValidReadStatus(incoming());
+      allow delete: if isOwner(userId) && isValidId(serverId);
+    }
+
+    match /flaggedMessages/{messageId} {
+      allow list: if isVerified() && (isModeratorOf(resource.data.serverId) || isSuperAdmin());
+      allow get: if isValidId(messageId) && isVerified() && (isModeratorOf(resource.data.serverId) || isSuperAdmin());
+      
+      // Allow creation for simulator
+      allow create: if isValidId(messageId) && isVerified() 
+                    && (isModeratorOf(incoming().serverId) || isSuperAdmin()) 
+                    && isValidFlaggedMessage(incoming()) 
+                    && incoming().get('isSimulator', false) == true
+                    && (isSuperAdmin() || get(/databases/$(database)/documents/servers/$(incoming().serverId)).data.get('simulatorMode', false) == true);
+      
+      allow update: if false;
+      
+      allow delete: if false;
+    }
+
+    match /training/{messageId} {
+      allow read, write: if false; // Deprecated collection, use trainingFeedback
+    }
+
+    match /server_subscriptions/{serverId} {
+      allow get: if isValidId(serverId) && (isModeratorOf(serverId) || isSuperAdmin());
+    }
+
+    match /error_logs/{logId} {
+      allow create: if isValidId(logId) && isVerified() && isValidErrorLog(incoming());
+      allow get: if isValidId(logId) && isSuperAdmin();
+      allow list: if isSuperAdmin();
+    }
+
+    match /modActions/{actionId} {
+      allow get: if isValidId(actionId) && isVerified() && isModeratorOf(resource.data.serverId);
+      allow list: if isVerified() && isModeratorOf(resource.data.serverId);
+      allow create: if isValidId(actionId) && isVerified() && isModeratorOf(incoming().serverId) && isValidModAction(incoming());
+    }
+
+    match /trainingFeedback/{feedbackId} {
+      allow get: if isValidId(feedbackId) && isVerified() && (isSuperAdmin() || isModeratorOf(resource.data.serverId));
+      allow list: if isVerified() && (isSuperAdmin() || isModeratorOf(resource.data.serverId));
+      allow create: if false; // Only trusted backend/Admin SDK may create training feedback
+      allow update, delete: if false; // Only bot or admin can update/delete
+    }
+
+    match /promptTemplates/{templateId} {
+      allow get: if isValidId(templateId) && isVerified() && (isSuperAdmin() || getModeratorData() != null);
+      allow list: if isVerified() && (isSuperAdmin() || getModeratorData() != null);
+      allow write: if false;
+    }
+
+    match /recommendations/{recommendationId} {
+      allow get: if isValidId(recommendationId) && isVerified() && (isSuperAdmin() || isModeratorOf(resource.data.serverId) || resource.data.serverId == 'global');
+      allow list: if isVerified() && (isSuperAdmin() || isModeratorOf(resource.data.serverId) || resource.data.serverId == 'global');
+      allow write: if false;
+    }
+
+    match /system_health/{id} {
+      allow get: if isValidId(id) && isVerified() && isSuperAdmin();
+      allow list: if isVerified() && isSuperAdmin();
+      allow write: if false;
+    }
+
+    match /analytics/{serverId}/{document=**} {
+      allow read: if isVerified() && (isModeratorOf(serverId) || isSuperAdmin());
+    }
+
+    match /admins/{uid} {
+      allow read: if isSuperAdmin();
+      allow write: if false; // Admins managed outside of client UI for now
+    }
+
+    function isValidFeedback(data) {
+      return data.keys().hasOnly(['userId', 'userEmail', 'type', 'title', 'description', 'status', 'createdAt'])
+        && data.keys().hasAll(['userId', 'userEmail', 'type', 'title', 'description'])
+        && data.userId == request.auth.uid 
+        && data.userEmail == request.auth.token.email
+        && data.type in ['bug', 'feature', 'general']
+        && data.title is string && data.title.size() <= 200
+        && data.description is string && data.description.size() <= 2000
+        && (!('status' in data) || data.status in ['open', 'closed', 'resolved'])
+        && (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is string);
+    }
+
+    match /feedback/{feedbackId} {
+      allow create: if isValidId(feedbackId) && isVerified() && isValidFeedback(incoming());
+      allow get: if isValidId(feedbackId) && isSuperAdmin();
+      allow list: if isSuperAdmin();
+      allow update, delete: if isValidId(feedbackId) && isSuperAdmin();
+    }
+  }
+}

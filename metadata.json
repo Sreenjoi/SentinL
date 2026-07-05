@@ -1,0 +1,6 @@
+{
+  "name": "SentinL",
+  "description": "Discord AI moderation bot and dashboard",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

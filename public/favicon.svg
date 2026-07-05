@@ -1,0 +1,35 @@
+<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="logo-grad" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ff6f61" />
+      <stop offset="100%" stop-color="#00d2d3" />
+    </linearGradient>
+  </defs>
+
+  <g stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" color="#2b1d1c">
+    <!-- Antennae Lines -->
+    <path d="M 23 26 L 16 12" />
+    <path d="M 41 26 L 48 12" />
+
+    <!-- Antennae Blobs -->
+    <circle cx="16" cy="12" r="4" fill="none" />
+    <circle cx="48" cy="12" r="4" fill="none" />
+
+    <!-- Main Head (No bottom overlaps) -->
+    <!-- Starts at top left corner (20, 26), goes right to 44, down to 50, left to 20, up to 26 -->
+    <rect x="14" y="26" width="36" height="24" rx="6" fill="none" />
+
+    <!-- Left Ear - attached to side -->
+    <path d="M 14 31 H 10 C 8.895 31 8 31.895 8 33 V 43 C 8 44.105 8.895 45 10 45 H 14" fill="none" />
+    
+    <!-- Right Ear - attached to side -->
+    <path d="M 50 31 H 54 C 55.105 31 56 31.895 56 33 V 43 C 56 44.105 55.105 45 54 45 H 50" fill="none" />
+
+    <!-- Mouth - just a line or simple path entirely inside the head -->
+    <path d="M 26 43 Q 32 48 38 43" />
+
+    <!-- Eyes - simple circles -->
+    <circle cx="24" cy="36" r="3" fill="none" />
+    <circle cx="40" cy="36" r="3" fill="none" />
+  </g>
+</svg>

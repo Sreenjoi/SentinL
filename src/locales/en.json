@@ -1,0 +1,35 @@
+{
+  "commands": {
+    "status": {
+      "description": "Show subscription status",
+      "response": {
+        "premium": "This server has **Premium** access. Expires: {expiry}",
+        "trial": "This server has **Trial** access. {days} days remaining.",
+        "free": "This server is on **Free** tier. Use `/start_trial` or `/subscribe` to upgrade."
+      }
+    },
+    "addrule": {
+      "description": "Add a custom moderation rule",
+      "success": "Rule added: {rule}",
+      "error": "Failed to add rule. Make sure the text is not empty and under 500 characters."
+    },
+    "language": {
+      "set_success": "Server language has been set to: **{lang}**",
+      "view": "Current server language is: **{lang}**"
+    }
+  },
+  "common": {
+    "yes": "Yes",
+    "no": "No",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "loading": "Loading...",
+    "error": "An error occurred. Please try again later."
+  },
+  "moderation": {
+    "flagged": "Message flagged as {level} (confidence {conf}%)",
+    "auto_deleted": "Auto-deleted due to high confidence",
+    "timeout": "User timed out for {duration} minutes",
+    "warn": "User warned: {reason}"
+  }
+}
