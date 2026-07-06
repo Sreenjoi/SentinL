@@ -539,7 +539,7 @@ export default function Profile() {
                 </div>
                 <div>
                   <div className="text-sm font-extrabold text-danger tracking-tight">
-                    No Discord Connected
+                    Discord not connected
                   </div>
                   <div className="text-[10px] font-bold uppercase tracking-widest text-danger/70 mt-1">
                     Link your Discord account to manage servers.

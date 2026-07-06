@@ -55,6 +55,7 @@ import { Logo } from "./Logo";
 
 import { CopyableId } from "./CopyableId";
 import { BranchTabs } from "./BrandedPageHeader";
+import { ProGate } from "./ProGate";
 
 // ... skipping to the exact section
 import { ReportStatus } from "../types";
@@ -352,7 +353,7 @@ export default function ReportsManager({
       toast.success("Setting updated.", { id: `${field}-toast`, duration: 2000 });
     } catch (err: any) {
       console.error(`Error toggling ${field}:`, err);
-      toast.error("Failed to update setting.", { id: `${field}-toast` });
+      toast.error("Could not save this change. Please try again.", { id: `${field}-toast` });
       setSettings(prev => ({ ...prev, [field]: !value }));
       updateBaseline((old: any) => ({ ...old, [field]: !value }));
     }
@@ -948,68 +949,88 @@ export default function ReportsManager({
                             icon: CheckCircle,
                             label: "Dismiss",
                             color: "success",
+                            requiresPro: false,
                           },
                           {
                             action: "warn",
                             icon: AlertTriangle,
                             label: "Warn",
                             color: "warning",
+                            requiresPro: true,
                           },
                           {
                             action: "timeout",
                             icon: Clock,
                             label: "Mute",
                             color: "primary",
+                            requiresPro: true,
                           },
                           {
                             action: "ban",
                             icon: Ban,
                             label: "Ban",
                             color: "danger",
+                            requiresPro: true,
                           },
                           {
                             action: "delete_message",
                             icon: Trash2,
                             label: "Delete Message",
                             color: "danger",
+                            requiresPro: true,
                           },
                         ].map((btn) => {
                           const cannotDeleteMessage =
                             btn.action === "delete_message" &&
                             (!selectedReport.reportedMessageId || !selectedReport.reportedChannelId);
-                          return (
-                          <button
-                            key={btn.action}
-                            disabled={cannotDeleteMessage || isAssignedToOther(selectedReport)}
-                            title={
-                              isAssignedToOther(selectedReport)
-                                ? `Assigned to ${getAssigneeLabel(selectedReport)}`
-                                : cannotDeleteMessage
-                                  ? "This report is not attached to a specific message."
-                                  : undefined
-                            }
-                            onClick={() => {
-                              if (isAssignedToOther(selectedReport)) return;
-                              if (cannotDeleteMessage) return;
-                              const userReason = moderatorNote.trim();
-                              handleAction(
-                                selectedReport.id,
-                                btn.action as any,
-                                userReason ||
-                                  `${btn.label} issued for violation.`,
-                              );
-                            }}
-                            className="flex flex-col items-center gap-2 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-outline-variant/20 bg-white/40 hover:bg-primary hover:text-white hover:border-primary hover:shadow-xl hover:shadow-primary/15 transition-all duration-300 ease-out group active:scale-95 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-white/40 disabled:hover:text-inherit disabled:hover:border-outline-variant/20 disabled:hover:shadow-none"
-                          >
-                            <div
-                              className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center transition-all duration-300 ease-out bg-surface-container/50 text-text-secondary group-hover:bg-white/20 group-hover:text-white group-disabled:group-hover:bg-surface-container/50 group-disabled:group-hover:text-text-secondary"
+                          const actionButton = (
+                            <button
+                              key={btn.action}
+                              disabled={cannotDeleteMessage || isAssignedToOther(selectedReport)}
+                              title={
+                                isAssignedToOther(selectedReport)
+                                  ? `Assigned to ${getAssigneeLabel(selectedReport)}`
+                                  : cannotDeleteMessage
+                                    ? "This report is not attached to a specific message."
+                                    : undefined
+                              }
+                              onClick={() => {
+                                if (isAssignedToOther(selectedReport)) return;
+                                if (cannotDeleteMessage) return;
+                                const userReason = moderatorNote.trim();
+                                handleAction(
+                                  selectedReport.id,
+                                  btn.action as any,
+                                  userReason ||
+                                    `${btn.label} issued for violation.`,
+                                );
+                              }}
+                              className="flex h-full w-full flex-col items-center gap-2 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-outline-variant/20 bg-white/40 hover:bg-primary hover:text-white hover:border-primary hover:shadow-xl hover:shadow-primary/15 transition-all duration-300 ease-out group active:scale-95 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-white/40 disabled:hover:text-inherit disabled:hover:border-outline-variant/20 disabled:hover:shadow-none"
                             >
-                              <btn.icon className="w-4 h-4 sm:w-5 sm:h-5 transition-transform duration-300 ease-out group-hover:scale-110" />
-                            </div>
-                            <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-center truncate w-full">
-                              {btn.label}
-                            </span>
-                          </button>
+                              <div
+                                className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center transition-all duration-300 ease-out bg-surface-container/50 text-text-secondary group-hover:bg-white/20 group-hover:text-white group-disabled:group-hover:bg-surface-container/50 group-disabled:group-hover:text-text-secondary"
+                              >
+                                <btn.icon className="w-4 h-4 sm:w-5 sm:h-5 transition-transform duration-300 ease-out group-hover:scale-110" />
+                              </div>
+                              <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-center truncate w-full">
+                                {btn.label}
+                              </span>
+                            </button>
+                          );
+
+                          return btn.requiresPro ? (
+                            <React.Fragment key={btn.action}>
+                              <ProGate
+                                featureName="Report Moderation Actions"
+                                featureDescription="Warn, mute, ban, or delete messages from a user report without leaving SentinL."
+                                isPro={isPro}
+                                className="relative block h-full w-full"
+                              >
+                                {actionButton}
+                              </ProGate>
+                            </React.Fragment>
+                          ) : (
+                            actionButton
                           );
                         })}
                       </div>

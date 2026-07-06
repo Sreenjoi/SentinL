@@ -172,7 +172,7 @@ export default function ModSettings() {
     } catch (err: any) {
       console.error(`Error toggling ${field}:`, err);
       handleFirestoreError(err, OperationType.WRITE, `servers/${selectedServerId}`);
-      toast.error("Failed to update setting.", { id: `${field}-toast` });
+      toast.error("Could not save this change. Please try again.", { id: `${field}-toast` });
       setSettings((prev) => ({ ...prev, [field]: !value }));
       updateBaseline((old: any) => ({ ...old, [field]: !value }));
     }

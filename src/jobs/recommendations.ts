@@ -108,7 +108,6 @@ export async function generateServerRecommendations() {
         const feedbacksSnap = await db
           .collection("trainingFeedback")
           .where("serverId", "==", serverId)
-          .where("processed", "==", false)
           .where("timestamp", ">=", oneWeekAgo)
           .get();
 
@@ -132,7 +131,7 @@ export async function generateServerRecommendations() {
         const feedbacks = feedbacksSnap.docs.map((d: any) => ({
           id: d.id,
           ...d.data(),
-        }));
+        })).filter((f: any) => f.recommendationProcessed !== true);
 
         const flagged = flaggedSnap.docs.map((d: any) => d.data());
 
@@ -255,7 +254,7 @@ Return ONLY valid JSON. No markdown, no extra text. Do not use unescaped double 
           // mark as processed
           for (const fId of feedbackIds) {
             batch.update(db.collection("trainingFeedback").doc(fId), {
-              processed: true,
+              recommendationProcessed: true,
             });
           }
 

@@ -18,6 +18,7 @@ import {
   hasLocalStructuralModerationRisk,
   shouldBypassClearlySafeLongMessage,
 } from "./src/utils/moderationHelpers.js";
+import { buildModeratorServerAccessUpdate } from "./src/utils/moderatorServerSync.js";
 
 import {
   startDiscordBot,
@@ -2012,16 +2013,16 @@ export async function createApp() {
         { merge: true },
       );
 
-      const serverSnap = await db.collection("servers").doc(serverId).get();
-      let logChannelId = serverSnap.data()?.logChannelId;
+      const reportSettingsSnap = await db
+        .collection("servers")
+        .doc(serverId)
+        .collection("settings")
+        .doc("reports")
+        .get();
+      let logChannelId = reportSettingsSnap.data()?.modLogChannelId || reportSettingsSnap.data()?.logChannelId;
       if (!logChannelId) {
-        const reportSettingsSnap = await db
-          .collection("servers")
-          .doc(serverId)
-          .collection("settings")
-          .doc("reports")
-          .get();
-        logChannelId = reportSettingsSnap.data()?.modLogChannelId || reportSettingsSnap.data()?.logChannelId;
+        const serverSnap = await db.collection("servers").doc(serverId).get();
+        logChannelId = serverSnap.data()?.logChannelId;
       }
       const client = getBotClient();
       if (client && client.isReady?.() && logChannelId) {
@@ -3642,33 +3643,37 @@ export async function createApp() {
           return (perms & 8n) === 8n || (perms & 32n) === 32n;
         });
 
-        const serverIds = adminGuilds.map((g: any) => g.id);
-        const serverNames = adminGuilds.reduce((acc: any, g: any) => {
-          acc[g.id] = g.name;
-          return acc;
-        }, {});
-
         // Save securely to DB before sending success back to client
         const email = payloadObj.email;
         const uid = payloadObj.uid || "";
+        const accessUpdate = buildModeratorServerAccessUpdate(null, adminGuilds);
         if (email) {
            const db = getAdminDB();
+           const modRef = db.collection("moderators").doc(email);
+           const previousSnap = await modRef.get();
+           const previousData = previousSnap.exists ? previousSnap.data() : null;
+           const syncedAccess = buildModeratorServerAccessUpdate(previousData, adminGuilds);
            await db.collection("moderators").doc(email).set({
              discordId: discordUser.id,
              discordUsername: discordUser.username,
              discordAvatar: discordUser.avatar,
-             serverIds: serverIds,
-             serverNames: serverNames,
+             serverIds: syncedAccess.serverIds,
+             serverNames: syncedAccess.serverNames,
+             activeServerIds: syncedAccess.activeServerIds,
+             staleServers: syncedAccess.staleServers,
+             lastServerSyncAt: FieldValue.serverTimestamp(),
              firebaseUid: uid
            }, { merge: true });
+           accessUpdate.serverIds = syncedAccess.serverIds;
+           accessUpdate.serverNames = syncedAccess.serverNames;
         }
 
         const oauthPayload = {
           id: discordUser.id,
           username: discordUser.username,
           avatar: discordUser.avatar,
-          serverIds,
-          serverNames,
+          serverIds: accessUpdate.serverIds,
+          serverNames: accessUpdate.serverNames,
           completedAt: Date.now(),
         };
         const html = `

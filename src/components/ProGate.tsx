@@ -154,6 +154,10 @@ const OUTCOME_COPY: Record<string, { does: string; solves: string }> = {
     does: "Removes the free-tier cap on reaction role panels.",
     solves: "Lets larger communities organize roles without hitting setup limits.",
   },
+  "Report Moderation Actions": {
+    does: "Lets staff warn, mute, ban, or delete the reported message directly from a report.",
+    solves: "Turns reports into one-click moderation work instead of making staff jump between Discord and the dashboard.",
+  },
 };
 
 const getOutcomeCopy = (featureName: string, featureDescription: string) => {

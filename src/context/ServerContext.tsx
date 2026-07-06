@@ -416,7 +416,7 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
           OperationType.GET,
           `moderators/${user.email}`,
         );
-        setAccessSyncError("Firebase quota or permissions blocked dashboard access sync. Try again after quota resets.");
+        setAccessSyncError("We could not load your Discord servers right now. Please try reconnecting Discord or refresh in a few minutes.");
         setLoading(false);
       },
     );
@@ -433,7 +433,7 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
           await applyModeratorAccess(snap.data());
         }
       } catch (error) {
-        setAccessSyncError("Firebase quota or permissions blocked dashboard access sync. Try again after quota resets.");
+        setAccessSyncError("We could not load your Discord servers right now. Please try reconnecting Discord or refresh in a few minutes.");
       }
     }
     await fetchBotGuilds();

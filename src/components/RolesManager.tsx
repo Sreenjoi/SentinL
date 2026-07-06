@@ -186,7 +186,7 @@ export default function RolesManager() {
       toast.success("Setting updated.", { duration: 2000 });
     } catch (err: any) {
       console.error(err);
-      toast.error("Failed to update setting.");
+      toast.error("Could not save this change. Please try again.");
       setServerSettings(s => ({
         ...s,
         autorole: { ...s.autorole, enabled: !value }
@@ -214,7 +214,7 @@ export default function RolesManager() {
       toast.success("Setting updated.", { duration: 2000 });
     } catch (err: any) {
       console.error(err);
-      toast.error("Failed to update setting.");
+      toast.error("Could not save this change. Please try again.");
       setOnboardingConfig(s => ({ ...s, [field]: !value }));
       updateBaseline((old: any[]) => {
         const o = { ...old[1], [field]: !value };
@@ -254,7 +254,7 @@ export default function RolesManager() {
       );
     } catch (err: any) {
       console.error("Save error:", err);
-      toast.error("Save error: " + err.message);
+      toast.error("Could not save your role settings. Please try again.");
     } finally {
       setSavingServerSettings(false);
       setIsRolesSaved(true);

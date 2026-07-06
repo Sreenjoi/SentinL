@@ -186,7 +186,7 @@ export default function HealthScore() {
       }
     } catch (err) {
       console.error(`Error toggling ${field}:`, err);
-      toast.error("Failed to update setting.", { id: `${field}-toast` });
+      toast.error("Could not save this change. Please try again.", { id: `${field}-toast` });
       setWidgetSettings(prev => ({ ...prev, [field]: !value }));
       updateBaseline((old: any) => ({ ...old, [field]: !value }));
     }

@@ -247,7 +247,7 @@ export default function AdvancedAnalytics() {
       toast.success("Setting updated.", { duration: 2000 });
     } catch (e) {
       console.error(e);
-      toast.error("Failed to update setting.");
+      toast.error("Could not save this change. Please try again.");
       setDigestEnabled(!checked);
       updateDigestBaseline((old: any[]) => [!checked, old[1]]);
     }
@@ -743,7 +743,7 @@ export default function AdvancedAnalytics() {
                   {!data.messages || data.messages.length === 0 ? (
                     <CompactEmptyState 
                       title="No Data Available"
-                      description="Insufficient message traffic to generate insights."
+                      description="Not enough activity yet. SentinL will show insights here after more messages are processed."
                     />
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
@@ -849,7 +849,7 @@ export default function AdvancedAnalytics() {
                   {!data.members || data.members.length === 0 ? (
                     <CompactEmptyState 
                       title="No Data Available"
-                      description="Insufficient member traffic to generate insights."
+                      description="Not enough member activity yet. SentinL will show growth insights here once there is more data."
                     />
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">

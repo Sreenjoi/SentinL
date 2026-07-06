@@ -488,7 +488,7 @@ export default function BotSettings() {
 
         if (failed.length > 0) {
           failed.forEach((f: any) => {
-            toast.error(`Failed to register /${f.name}: ${f?.error}`);
+            toast.error(`Could not sync /${f.name}. Check the bot permissions and try again.`);
           });
         }
       } else if (data.success) {
@@ -499,7 +499,7 @@ export default function BotSettings() {
           success: false,
           message: data?.error || "Unknown error",
         });
-        toast.error(data?.error || "Failed to sync commands.");
+        toast.error("Some commands could not be synced. Check the bot permissions and try again.");
       }
 
       if (data.success && selectedServerId) {
@@ -514,7 +514,7 @@ export default function BotSettings() {
     } catch (err: any) {
       console.error("Sync Error:", err);
       setSyncResult({ success: false, message: err.message });
-      toast.error("Failed to sync commands: " + err.message);
+      toast.error("Some commands could not be synced. Check the bot permissions and try again.");
     } finally {
       setSyncing(false);
     }
@@ -931,7 +931,7 @@ export default function BotSettings() {
       toast.success("Server claimed successfully!");
     } catch (err: any) {
       console.error(err);
-      toast.error("Error claiming server: " + err.message);
+      toast.error("Could not claim this server. Make sure you have Manage Server permission and try again.");
     } finally {
       setClaiming(false);
     }
@@ -1093,7 +1093,7 @@ export default function BotSettings() {
       toast.success("Setting updated");
     } catch (error) {
       console.error("Error updating setting:", error);
-      toast.error("Failed to update setting");
+      toast.error("Could not save this change. Please try again.");
       setSettings((prev) => ({
         ...prev,
         autoDeleteOnKeywordMatch: !isChecked,
@@ -1266,7 +1266,7 @@ export default function BotSettings() {
         title="No servers found"
         description={
           !discordProfile
-            ? "Connect your Discord account to sync your servers using the button on the top right."
+            ? "Connect your Discord account from the sidebar to sync your servers."
             : "Invite SentinL to your server to get started."
         }
       >

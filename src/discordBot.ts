@@ -1081,6 +1081,26 @@ export async function executeKeywordModeration(
           logger.error(e);
         }
       }
+
+      const isPremiumForActions = await isServerPremium(serverId, db).catch(
+        () => false,
+      );
+      await sendFlagLogNotification({
+        client: message.client,
+        serverId,
+        logChannelId: serverData?.logChannelId,
+        flaggedMessageId: message.id,
+        channelId: message.channelId,
+        authorId: message.author.id,
+        authorUsername: message.author.username,
+        content: isQuotaHit
+          ? "*** Content not logged due to quota configuration ***"
+          : message.content,
+        level: "Keyword",
+        reason: `Matched keyword: ${matchedKeyword}`,
+        isPremium: isPremiumForActions,
+        alreadyActioned: action === "auto_deleted",
+      });
     } else {
       addBotLog(
         `[SentinL] Skipping keyword flag - Message ${message.id} already flagged.`,
@@ -1315,6 +1335,7 @@ const LOG_LEVEL_WRITE_TO_DB = [
   "[Bot Critical]",
   "[Mod Action]",
   "[SentinL]",
+  "[Reports]",
   "[Giveaway",
   "[System Fault]",
   "[AI Training Error]",
@@ -1653,6 +1674,602 @@ export async function performDiscordAction(
       `[Mod Action Error] Failed to perform ${action} on ${messageId}: ${e.message}`,
     );
     throw e;
+  }
+}
+
+const FLAG_ACTION_PREFIX = "flag_action";
+const FLAG_ACTIONS = ["approved", "warn", "timeout", "delete"] as const;
+type FlagActionButtonAction = (typeof FLAG_ACTIONS)[number];
+
+function isFlagActionButtonAction(action: string): action is FlagActionButtonAction {
+  return (FLAG_ACTIONS as readonly string[]).includes(action);
+}
+
+function parseFlagActionCustomId(customId: string): { flaggedMessageId: string; action: FlagActionButtonAction } | null {
+  const parts = customId.split(":");
+  if (parts.length !== 3 || parts[0] !== FLAG_ACTION_PREFIX) return null;
+  const [, flaggedMessageId, action] = parts;
+  if (!flaggedMessageId || !isFlagActionButtonAction(action)) return null;
+  return { flaggedMessageId, action };
+}
+
+function buildFlagNotificationComponents(flaggedMessageId: string, dashboardUrl: string, includeModerationActions: boolean) {
+  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+
+  if (includeModerationActions) {
+    rows.push(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`${FLAG_ACTION_PREFIX}:${flaggedMessageId}:approved`)
+          .setLabel("Approve")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`${FLAG_ACTION_PREFIX}:${flaggedMessageId}:warn`)
+          .setLabel("Warn")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`${FLAG_ACTION_PREFIX}:${flaggedMessageId}:timeout`)
+          .setLabel("Timeout")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`${FLAG_ACTION_PREFIX}:${flaggedMessageId}:delete`)
+          .setLabel("Delete")
+          .setStyle(ButtonStyle.Danger),
+      ),
+    );
+  }
+
+  rows.push(
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setLabel("Review in Dashboard")
+        .setStyle(ButtonStyle.Link)
+        .setURL(dashboardUrl),
+    ),
+  );
+
+  return rows;
+}
+
+function getFlagNotificationColor(level: string) {
+  const normalized = String(level || "").toLowerCase();
+  if (normalized === "extreme") return 0xff0000;
+  if (normalized === "inappropriate") return 0xff6f61;
+  if (normalized === "moderate") return 0xffa500;
+  if (normalized === "spam" || normalized === "keyword") return 0xf1c40f;
+  return 0x808080;
+}
+
+async function sendFlagLogNotification(params: {
+  client: any;
+  serverId: string;
+  logChannelId?: string;
+  flaggedMessageId: string;
+  channelId: string;
+  authorId: string;
+  authorUsername?: string;
+  content?: string;
+  level: string;
+  reason: string;
+  isPremium: boolean;
+  alreadyActioned?: boolean;
+  reviewOnly?: boolean;
+}) {
+  if (!params.logChannelId) {
+    logger.warn(
+      {
+        serverId: params.serverId,
+        flaggedMessageId: params.flaggedMessageId,
+      },
+      "Skipped flagged-message log notification because no log channel is configured",
+    );
+    return;
+  }
+
+  try {
+    const logChannel =
+      params.client.channels.cache.get(params.logChannelId) ||
+      (await params.client.channels.fetch(params.logChannelId).catch(() => null));
+
+    if (!logChannel || !logChannel.isTextBased()) {
+      logger.warn(
+        {
+          serverId: params.serverId,
+          logChannelId: params.logChannelId,
+          flaggedMessageId: params.flaggedMessageId,
+        },
+        "Skipped flagged-message log notification because the log channel is unavailable or not text-based",
+      );
+      return;
+    }
+
+    const dashUrl = `${APP_URL}/moderation#queue`;
+    invalidateServerTierCache(params.serverId);
+    const hasPaidActions =
+      params.isPremium ||
+      (db ? await isServerPremium(params.serverId, db).catch(() => false) : false);
+    const safeText = String(params.content || "").substring(0, 500);
+    const contentValue = safeText
+      ? `>>> ${safeText}${String(params.content || "").length > 500 ? "..." : ""}`
+      : "Content was not stored for this flag.";
+    const title = params.alreadyActioned
+      ? "Flagged Message Auto-Actioned"
+      : params.reviewOnly
+        ? "Flagged Message Needs Review"
+        : "Message Flagged";
+
+    await logChannel.send({
+      embeds: [
+        {
+          title,
+          description: `A message was flagged in <#${params.channelId}>.`,
+          color: getFlagNotificationColor(params.level),
+          fields: [
+            {
+              name: "User",
+              value: `<@${params.authorId}> (${params.authorUsername || "Unknown"})`,
+              inline: true,
+            },
+            {
+              name: "Severity",
+              value: params.level || "Flagged",
+              inline: true,
+            },
+            { name: "Reasoning", value: params.reason || "Matched moderation rules." },
+            {
+              name: "Content",
+              value: contentValue,
+            },
+          ],
+          footer: getSentinLProtectedRawFooter(),
+          timestamp: new Date().toISOString(),
+        },
+      ],
+      components: buildFlagNotificationComponents(
+        params.flaggedMessageId,
+        dashUrl,
+        hasPaidActions,
+      ),
+    });
+  } catch (err) {
+    logger.error({ err }, "Failed to send flagged-message log notification");
+  }
+}
+
+const REPORT_BUTTON_ACTIONS = [
+  "delete_message",
+  "timeout",
+  "dismiss",
+  "warn",
+  "ban",
+];
+
+function parseReportActionButtonId(customId: string) {
+  if (!customId.startsWith("report_action_")) return null;
+  const body = customId.slice("report_action_".length);
+  for (const action of REPORT_BUTTON_ACTIONS) {
+    const suffix = `_${action}`;
+    if (body.endsWith(suffix)) {
+      const reportId = body.slice(0, -suffix.length);
+      if (!reportId) return null;
+      return { reportId, actionType: action };
+    }
+  }
+  return null;
+}
+
+function parseResolveReportModalId(customId: string) {
+  if (!customId.startsWith("resolve_modal_")) return null;
+  const body = customId.slice("resolve_modal_".length);
+  for (const action of REPORT_BUTTON_ACTIONS) {
+    const suffix = `_${action}`;
+    if (body.endsWith(suffix)) {
+      const reportId = body.slice(0, -suffix.length);
+      if (!reportId) return null;
+      return { reportId, action };
+    }
+  }
+  return null;
+}
+
+function buildReportNotificationComponents(
+  reportId: string,
+  dashboardUrl: string | null,
+  includeModerationActions: boolean,
+  hasReportedMessage: boolean,
+) {
+  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+
+  if (includeModerationActions) {
+    rows.push(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`report_take_${reportId}`)
+          .setLabel("Take Report")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`report_action_${reportId}_dismiss`)
+          .setLabel("Dismiss")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`report_action_${reportId}_warn`)
+          .setLabel("Warn")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`report_action_${reportId}_timeout`)
+          .setLabel("Timeout")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`report_action_${reportId}_ban`)
+          .setLabel("Ban")
+          .setStyle(ButtonStyle.Danger),
+      ),
+    );
+  }
+
+  const secondaryButtons: ButtonBuilder[] = [];
+  if (includeModerationActions && hasReportedMessage) {
+    secondaryButtons.push(
+      new ButtonBuilder()
+        .setCustomId(`report_action_${reportId}_delete_message`)
+        .setLabel("Delete Message")
+        .setStyle(ButtonStyle.Danger),
+    );
+  }
+  if (dashboardUrl) {
+    secondaryButtons.push(
+      new ButtonBuilder()
+        .setLabel("Open Dashboard")
+        .setStyle(ButtonStyle.Link)
+        .setURL(dashboardUrl),
+    );
+  }
+  if (secondaryButtons.length > 0) {
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...secondaryButtons));
+  }
+
+  return rows;
+}
+
+function getPublicDashboardUrl(path: string) {
+  const normalizedAppUrl = (APP_URL || "").replace(/\/+$/, "");
+  if (!/^https:\/\//i.test(normalizedAppUrl)) return null;
+  return `${normalizedAppUrl}${path}`;
+}
+
+async function getReportLogChannelId(serverId: string, reportsSettingsSnap?: any) {
+  const settingsSnap =
+    reportsSettingsSnap ||
+    (await db
+      .collection("servers")
+      .doc(serverId)
+      .collection("settings")
+      .doc("reports")
+      .get());
+  const settingsData = settingsSnap.exists ? settingsSnap.data() : {};
+  const reportLogChannelId = settingsData?.modLogChannelId || settingsData?.logChannelId;
+  if (reportLogChannelId) return reportLogChannelId;
+
+  const serverSnap = await db.collection("servers").doc(serverId).get();
+  return serverSnap.data()?.logChannelId || null;
+}
+
+async function sendUserReportLogNotification(params: {
+  client: any;
+  serverId: string;
+  logChannelId?: string | null;
+  reportId: string;
+  reporterId: string;
+  reportedUserId: string;
+  reason: string;
+  reportedMessageContent?: string;
+  messageLink?: string;
+  isPremium: boolean;
+}) {
+  if (!params.logChannelId) {
+    addBotLog(
+      `[Reports] Skipped report notification ${params.reportId}: no log channel configured for server ${params.serverId}.`,
+    );
+    logger.warn(
+      { serverId: params.serverId, reportId: params.reportId },
+      "Skipped report notification because no log channel is configured",
+    );
+    return { ok: false, reason: "no_log_channel" };
+  }
+
+  try {
+    let channel =
+      params.client.channels.cache.get(params.logChannelId) ||
+      (await params.client.channels.fetch(params.logChannelId).catch(() => null));
+    if (!channel) {
+      const guild =
+        params.client.guilds.cache.get(params.serverId) ||
+        (await params.client.guilds.fetch(params.serverId).catch(() => null));
+      channel =
+        guild?.channels.cache.get(params.logChannelId) ||
+        (await guild?.channels.fetch(params.logChannelId).catch(() => null));
+    }
+    if (!channel || !channel.isTextBased()) {
+      addBotLog(
+        `[Reports] Skipped report notification ${params.reportId}: log channel ${params.logChannelId} is unavailable or not text-based.`,
+      );
+      logger.warn(
+        {
+          serverId: params.serverId,
+          reportId: params.reportId,
+          logChannelId: params.logChannelId,
+        },
+        "Skipped report notification because the log channel is unavailable or not text-based",
+      );
+      return { ok: false, reason: "log_channel_unavailable" };
+    }
+
+    invalidateServerTierCache(params.serverId);
+    const hasPaidActions =
+      params.isPremium ||
+      (db ? await isServerPremium(params.serverId, db).catch(() => false) : false);
+    const dashboardUrl = getPublicDashboardUrl("/moderation#reports/queue");
+    const embed = new EmbedBuilder()
+      .setTitle("New User Report")
+      .setDescription("A member submitted a report for moderator review.")
+      .setColor(0xff6f61)
+      .addFields(
+        { name: "Report ID", value: params.reportId, inline: true },
+        { name: "Reporter", value: `<@${params.reporterId}>`, inline: true },
+        { name: "Reported User", value: `<@${params.reportedUserId}>`, inline: true },
+        { name: "Reason", value: params.reason || "No reason provided." },
+      )
+      .setFooter(getSentinLProtectedFooter())
+      .setTimestamp(new Date());
+
+    if (params.reportedMessageContent) {
+      embed.addFields({
+        name: "Reported Message",
+        value: params.reportedMessageContent.substring(0, 500),
+      });
+    }
+    if (params.messageLink) {
+      embed.addFields({ name: "Message Link", value: params.messageLink });
+    }
+
+    const components = buildReportNotificationComponents(
+      params.reportId,
+      dashboardUrl,
+      hasPaidActions,
+      Boolean(params.reportedMessageContent || params.messageLink),
+    );
+    const payload: any = {
+      embeds: [embed],
+      allowedMentions: { users: [] },
+    };
+    if (components.length > 0) {
+      payload.components = components;
+    }
+
+    await channel.send(payload);
+    addBotLog(
+      `[Reports] Sent report notification ${params.reportId} to log channel ${params.logChannelId}. Paid actions: ${hasPaidActions ? "yes" : "no"}. Components: ${components.length}.`,
+    );
+    return { ok: true, reason: "sent", components: components.length, paidActions: hasPaidActions };
+  } catch (err) {
+    addBotLog(
+      `[Reports] Failed to send report notification ${params.reportId}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    logger.error({ err, serverId: params.serverId, reportId: params.reportId }, "Failed to send report log notification");
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function handleFlagActionButton(interaction: any, parsed: { flaggedMessageId: string; action: FlagActionButtonAction }) {
+  if (!db) throw new Error("Database not connected");
+  if (!interaction.guildId) {
+    await interaction.reply({
+      content: "Flag action buttons must be used inside the server where the message was flagged.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+
+  const flagRef = db.collection("flaggedMessages").doc(parsed.flaggedMessageId);
+  const flagSnap = await flagRef.get();
+  if (!flagSnap.exists) {
+    await interaction.editReply("This flagged message record no longer exists.");
+    return;
+  }
+
+  const flagData = flagSnap.data() || {};
+  if (flagData.serverId !== interaction.guildId) {
+    await interaction.editReply("This action button does not belong to this server.");
+    return;
+  }
+
+  if (!flagData.channelId || !flagData.messageId) {
+    await interaction.editReply("This flagged item is missing the original Discord message details. Please review it in the dashboard.");
+    return;
+  }
+
+  const alreadyResolved =
+    flagData.isApproved ||
+    (flagData.isWarned && parsed.action === "warn") ||
+    ((flagData.isDeleted || flagData.actionTaken === "auto_deleted") &&
+      parsed.action === "delete") ||
+    ["approved", "timeout", "delete", "deleted"].includes(String(flagData.actionTaken || ""));
+  if (alreadyResolved) {
+    await interaction.editReply("This flagged message has already been handled.");
+    return;
+  }
+
+  const { authorizeModAction } = await import("./utils/modAuth.js");
+  await authorizeModAction(
+    interaction.user.id,
+    interaction.guildId,
+    parsed.action,
+    db,
+    flagData.reason || "Manual review from Discord notification",
+    undefined,
+    false,
+  );
+
+  const lockAcquired = await db.runTransaction(async (t) => {
+    const freshSnap = await t.get(flagRef);
+    if (!freshSnap.exists) return "missing";
+    const fresh = freshSnap.data() || {};
+    const wasAlreadyHandled =
+      fresh.isApproved ||
+      (fresh.isWarned && parsed.action === "warn") ||
+      ((fresh.isDeleted || fresh.actionTaken === "auto_deleted") &&
+        parsed.action === "delete") ||
+      ["approved", "timeout", "delete", "deleted"].includes(String(fresh.actionTaken || ""));
+    if (wasAlreadyHandled) return "handled";
+    if (
+      fresh.actionInProgressUntil &&
+      typeof fresh.actionInProgressUntil === "number" &&
+      fresh.actionInProgressUntil > Date.now()
+    ) {
+      return "locked";
+    }
+
+    t.update(flagRef, {
+      actionInProgressBy: interaction.user.id,
+      actionInProgressAction: parsed.action,
+      actionInProgressUntil: Date.now() + 60_000,
+    });
+    return "locked_by_me";
+  });
+
+  if (lockAcquired === "missing") {
+    await interaction.editReply("This flagged message record no longer exists.");
+    return;
+  }
+  if (lockAcquired === "handled") {
+    await interaction.editReply("This flagged message has already been handled.");
+    return;
+  }
+  if (lockAcquired === "locked") {
+    await interaction.editReply("Another moderator is already handling this flagged message. Please check again shortly.");
+    return;
+  }
+
+  let actionResult = { success: true } as any;
+  try {
+    if (parsed.action !== "approved") {
+      actionResult = await performDiscordAction(
+        interaction.guildId,
+        flagData.channelId,
+        flagData.messageId,
+        parsed.action,
+        flagData.authorId,
+        flagData.reason || "Manual review from Discord notification",
+      );
+    }
+  } catch (err) {
+    await flagRef.update({
+      actionInProgressBy: FieldValue.delete(),
+      actionInProgressAction: FieldValue.delete(),
+      actionInProgressUntil: FieldValue.delete(),
+    }).catch(() => null);
+    throw err;
+  }
+
+  const updated = await db.runTransaction(async (t) => {
+    const freshSnap = await t.get(flagRef);
+    if (!freshSnap.exists) return false;
+    const fresh = freshSnap.data() || {};
+    const wasAlreadyHandled =
+      fresh.isApproved ||
+      (fresh.isWarned && parsed.action === "warn") ||
+      ((fresh.isDeleted || fresh.actionTaken === "auto_deleted") &&
+        parsed.action === "delete") ||
+      ["approved", "timeout", "delete", "deleted"].includes(String(fresh.actionTaken || ""));
+    if (wasAlreadyHandled) return false;
+
+    const updateData: any = {
+      actionTaken: parsed.action,
+      actionedByDiscordId: interaction.user.id,
+      actionedByUsername: interaction.user.username,
+      actionedAt: FieldValue.serverTimestamp(),
+      actionInProgressBy: FieldValue.delete(),
+      actionInProgressAction: FieldValue.delete(),
+      actionInProgressUntil: FieldValue.delete(),
+    };
+
+    if (parsed.action === "approved") {
+      updateData.isApproved = true;
+      updateData.status = "approved";
+    } else if (parsed.action === "warn") {
+      updateData.isWarned = true;
+      updateData.actionTaken =
+        fresh.actionTaken === "auto_deleted" || fresh.isDeleted
+          ? "auto_deleted"
+          : "warn";
+      if (fresh.actionTaken === "auto_deleted" || fresh.isDeleted) {
+        updateData.isDeleted = true;
+      }
+      updateData.status = "actioned";
+    } else if (parsed.action === "timeout") {
+      if (fresh.actionTaken === "auto_deleted" || fresh.isDeleted) {
+        updateData.actionTaken = "auto_deleted";
+        updateData.isDeleted = true;
+      }
+      updateData.status = "actioned";
+    } else if (parsed.action === "delete") {
+      updateData.isDeleted = true;
+      updateData.actionTaken = "delete";
+      updateData.status = "actioned";
+    }
+
+    t.update(flagRef, updateData);
+    return true;
+  });
+
+  if (!updated) {
+    await interaction.editReply("This flagged message was already handled by another moderator.");
+    return;
+  }
+
+  const crypto = await import("crypto");
+  await db.collection("modActions").doc(crypto.randomUUID()).set({
+    serverId: interaction.guildId,
+    type: parsed.action,
+    timestamp: new Date().toISOString(),
+    reason: flagData.reason || "Manual review from Discord notification",
+    userId: flagData.authorId,
+    moderatorId: interaction.user.id,
+    moderatorUsername: interaction.user.username,
+    messageId: flagData.messageId,
+    channelId: flagData.channelId,
+    flaggedMessageId: parsed.flaggedMessageId,
+    userName: flagData.authorUsername,
+  });
+
+  const actionLabel =
+    parsed.action === "approved"
+      ? "approved"
+      : parsed.action === "warn"
+        ? "warned"
+        : parsed.action === "timeout"
+          ? "timed out"
+          : actionResult?.note === "Message already deleted"
+            ? "marked deleted because it was already gone"
+            : "deleted";
+
+  await interaction.editReply(`Done. This message was ${actionLabel}.`);
+
+  try {
+    const disabledRows = interaction.message.components.map((row: any) => {
+      const nextRow = ActionRowBuilder.from(row) as ActionRowBuilder<ButtonBuilder>;
+      nextRow.components.forEach((component: any) => {
+        if (typeof component.setDisabled === "function" && component.data?.style !== ButtonStyle.Link) {
+          component.setDisabled(true);
+        }
+      });
+      return nextRow;
+    });
+    await interaction.message.edit({ components: disabledRows });
+  } catch (err) {
+    logger.warn({ err }, "Failed to disable flag notification buttons after action");
   }
 }
 
@@ -2767,6 +3384,13 @@ export async function startDiscordBot() {
           return;
         }
 
+        const flagActionData =
+          typeof _customId === "string" ? parseFlagActionCustomId(_customId) : null;
+        if (flagActionData && interaction.isButton()) {
+          await handleFlagActionButton(interaction, flagActionData);
+          return;
+        }
+
         let serverId = interaction.guildId;
         
         // --- SAFEGUARD: General guild-only guard ---
@@ -3548,6 +4172,7 @@ export async function startDiscordBot() {
                 reportedUsername: reportedUser.username,
                 reason: reason.substring(0, 500),
                 status: "pending",
+                modLogNotificationStatus: "pending",
                 timestamp: FieldValue.serverTimestamp(),
               });
 
@@ -3556,51 +4181,36 @@ export async function startDiscordBot() {
               { merge: true },
             );
 
+
+            addBotLog(`[Reports] Preparing slash report notification ${reportId} for server ${serverId}.`);
+            const notificationResult = await sendUserReportLogNotification({
+              client: interaction.client,
+              serverId,
+              logChannelId: await getReportLogChannelId(serverId, settingsSnap),
+              reportId,
+              reporterId: interaction.user.id,
+              reportedUserId: reportedUser.id,
+              reason,
+              isPremium: await isServerPremium(serverId, db).catch(() => false),
+            });
+            await db
+              .collection("servers")
+              .doc(serverId)
+              .collection("reports")
+              .doc(reportId)
+              .set(
+                {
+                  modLogNotificationStatus: notificationResult?.ok ? "sent" : "failed",
+                  modLogNotificationReason: notificationResult?.reason || "unknown",
+                  modLogNotifiedAt: notificationResult?.ok ? FieldValue.serverTimestamp() : null,
+                },
+                { merge: true },
+              );
             await interaction.editReply(
-              `✅ Your report against <@${reportedUser.id}> has been submitted (ID: ${reportId}).`,
+              notificationResult?.ok
+                ? `Your report against <@${reportedUser.id}> has been submitted (ID: ${reportId}). Moderators have been notified.`
+                : `Your report against <@${reportedUser.id}> has been submitted (ID: ${reportId}). I saved it in the dashboard, but could not post the moderator log notification: ${String(notificationResult?.reason || "unknown").substring(0, 120)}.`,
             );
-
-            // Notify Mod Log
-            const modLogChannelId = settingsSnap.data()?.logChannelId;
-            if (modLogChannelId) {
-              try {
-                const channel =
-                  await interaction.guild?.channels.fetch(modLogChannelId);
-                if (channel?.isTextBased()) {
-                  const embed = new EmbedBuilder()
-                    .setTitle("🚩 New User Report")
-                    .setColor(0xe74c3c)
-                    .addFields(
-                      { name: "Report ID", value: reportId, inline: true },
-                      {
-                        name: "Reporter",
-                        value: `<@${interaction.user.id}>`,
-                        inline: true,
-                      },
-                      {
-                        name: "Reported User",
-                        value: `<@${reportedUser.id}>`,
-                        inline: true,
-                      },
-                      { name: "Reason", value: reason },
-                    )
-                    .setTimestamp();
-
-                  const row =
-                    new ActionRowBuilder<ButtonBuilder>().addComponents(
-                      new ButtonBuilder()
-                        .setCustomId(`report_view_${reportId}`)
-                        .setLabel("View Details")
-                        .setStyle(ButtonStyle.Primary),
-                    );
-
-                  await (channel as any).send({
-                    embeds: [embed],
-                    components: [row],
-                  });
-                }
-              } catch (e) {}
-            }
             return;
           }
 
@@ -5070,16 +5680,59 @@ export async function startDiscordBot() {
                 messageLink: link,
                 reason: reason,
                 status: "pending",
+                modLogNotificationStatus: "pending",
                 timestamp: FieldValue.serverTimestamp(),
               });
 
+            const settingsSnap = await db
+              .collection("servers")
+              .doc(serverId)
+              .collection("settings")
+              .doc("reports")
+              .get();
+            addBotLog(`[Reports] Preparing message report notification ${reportId} for server ${serverId}.`);
+            const notificationResult = await sendUserReportLogNotification({
+              client: interaction.client,
+              serverId,
+              logChannelId: await getReportLogChannelId(serverId, settingsSnap),
+              reportId,
+              reporterId: interaction.user.id,
+              reportedUserId: authorId || "Unknown",
+              reason,
+              reportedMessageContent: content,
+              messageLink: link,
+              isPremium: await isServerPremium(serverId, db).catch(() => false),
+            });
+            await db
+              .collection("servers")
+              .doc(serverId)
+              .collection("reports")
+              .doc(reportId)
+              .set(
+                {
+                  modLogNotificationStatus: notificationResult?.ok ? "sent" : "failed",
+                  modLogNotificationReason: notificationResult?.reason || "unknown",
+                  modLogNotifiedAt: notificationResult?.ok ? FieldValue.serverTimestamp() : null,
+                },
+                { merge: true },
+              );
             await interaction.editReply(
-              `✅ Report submitted (ID: ${reportId}). Moderators have been notified.`,
+              notificationResult?.ok
+                ? `Report submitted (ID: ${reportId}). Moderators have been notified.`
+                : `Report submitted (ID: ${reportId}). I saved it in the dashboard, but could not post the moderator log notification: ${String(notificationResult?.reason || "unknown").substring(0, 120)}.`,
             );
           }
 
           if (interaction.customId.startsWith("resolve_modal_")) {
-            const [, , reportId, action] = interaction.customId.split("_");
+            const parsedModal = parseResolveReportModalId(interaction.customId);
+            if (!parsedModal) {
+              await interaction.reply({
+                content: "This report action is invalid or expired.",
+                ephemeral: true,
+              });
+              return;
+            }
+            const { reportId, action } = parsedModal;
             const reason = interaction.fields.getTextInputValue("reason");
             let duration = null;
             try {
@@ -5518,13 +6171,15 @@ export async function startDiscordBot() {
           }
 
           if (interaction.customId.startsWith("report_action_")) {
-            const withoutPrefix = interaction.customId.replace(
-              "report_action_",
-              "",
-            );
-            const lastUnderscoreIdx = withoutPrefix.lastIndexOf("_");
-            const reportId = withoutPrefix.substring(0, lastUnderscoreIdx);
-            const actionType = withoutPrefix.substring(lastUnderscoreIdx + 1); // "warn" | "timeout" | "ban" | "dismiss"
+            const parsedReportAction = parseReportActionButtonId(interaction.customId);
+            if (!parsedReportAction) {
+              await interaction.reply({
+                content: "This report action is invalid or expired.",
+                ephemeral: true,
+              });
+              return;
+            }
+            const { reportId, actionType } = parsedReportAction;
 
             const modal = new ModalBuilder()
               .setCustomId(`resolve_modal_${reportId}_${actionType}`)
@@ -5598,6 +6253,59 @@ export async function startDiscordBot() {
                 .setStyle(ButtonStyle.Success),
             );
             await interaction.editReply({ embeds: [embed], components: [row] });
+            return;
+          }
+
+          if (action === "take") {
+            await interaction.deferReply({ ephemeral: true });
+            const reportRef = db
+              .collection("servers")
+              .doc(serverId)
+              .collection("reports")
+              .doc(reportId);
+            const reportSnap = await reportRef.get();
+            if (!reportSnap.exists) {
+              await interaction.editReply("Report not found.");
+              return;
+            }
+
+            const reportData = reportSnap.data() || {};
+            if (reportData.status && reportData.status !== "pending") {
+              await interaction.editReply("Only pending reports can be taken.");
+              return;
+            }
+
+            const assigneeId =
+              typeof reportData.assigneeId === "string" ? reportData.assigneeId : "";
+            const assigneeDiscordId =
+              typeof reportData.assigneeDiscordId === "string"
+                ? reportData.assigneeDiscordId
+                : "";
+            if (
+              assigneeId &&
+              assigneeId !== interaction.user.id &&
+              assigneeDiscordId !== interaction.user.id
+            ) {
+              await interaction.editReply(
+                `This report is already assigned to ${reportData.assigneeName || "another moderator"}.`,
+              );
+              return;
+            }
+
+            await reportRef.set(
+              {
+                moderatorId: interaction.user.id,
+                assigneeId: interaction.user.id,
+                assigneeDiscordId: interaction.user.id,
+                assigneeName: interaction.user.username,
+                assigneeAvatar: interaction.user.displayAvatarURL(),
+                assignedAt: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true },
+            );
+
+            await interaction.editReply(`You have taken report ${reportId}.`);
             return;
           }
 
@@ -6274,7 +6982,7 @@ export async function startDiscordBot() {
               const trainingDirections = trainingDocs
                 .map(
                   (d) =>
-                    `- Admin Directive: ${d.data().moderatorReason} (Corrected level: ${d.data().correctedSeverity || "unknown"})`,
+                    `- Admin Directive: ${d.data().moderatorReason} (Original text: "${String(d.data().originalContent || "").slice(0, 200).replace(/"/g, "'")}", Corrected level: ${d.data().correctedSeverity || "unknown"})`,
                 )
                 .join("\n");
               trainingContextText = `\nImportant Admin Context/Directions (Keep these in mind while evaluating):\n${trainingDirections}\n`;
@@ -7231,6 +7939,7 @@ Never return an empty array, markdown, prose, apologies, or explanations outside
     const generateFastPassPrompt =
       () => `You are SentinL, an AI moderator for a Discord server.
 Your task is a universal quick-triage for obvious violations (Spam, Moderate, Inappropriate, Extreme violations). Do NOT worry about custom server rules, just basic safety and common sense.
+${req.trainingContextText ? `Server-specific moderator training corrections:\n${escapeForPromptBlock(req.trainingContextText)}\nApply exact or very similar corrections when choosing severity. If a moderator corrected a phrase to Extreme, do not return Inappropriate for the same phrase.\n` : ""}
 Critically: Detect abuse written across languages, including words from one language typed using another writing system. Do not copy examples into the reason. In the reason, describe the actual detected language/category only if you are confident. If the message is English profanity, describe it as English profanity.
 If the message contains unfamiliar slang, romanized non-English words, mixed-language insults, or uncertain short direct-address language, do not confidently mark it Safe. Use lower confidence so the system can run a fuller review.
 Never return an empty results array. Every input message needs a verdict.
@@ -8278,6 +8987,78 @@ ${escapeForPromptBlock(combinedContent)}
       return clean.trim();
     };
 
+    const severityRank: Record<string, number> = {
+      Safe: 0,
+      Spam: 1,
+      Moderate: 2,
+      Inappropriate: 3,
+      Extreme: 4,
+    };
+
+    const normalizeTrainingText = (value: string) =>
+      String(value || "")
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const getExactTrainingSeverityCorrection = (
+      text: string,
+      currentLevel: string,
+    ) => {
+      if (!req.trainingContextText) return { level: currentLevel, applied: false };
+      const normalizedText = normalizeTrainingText(text);
+      if (!normalizedText) return { level: currentLevel, applied: false };
+
+      const directiveRegex =
+        /Original text:\s*"([^"]*)",\s*Corrected level:\s*(Safe|Spam|Moderate|Inappropriate|Extreme)/gi;
+      let match: RegExpExecArray | null;
+      let corrected = currentLevel;
+      let applied = false;
+
+      while ((match = directiveRegex.exec(req.trainingContextText)) !== null) {
+        const originalText = normalizeTrainingText(match[1]);
+        const correctedLevel = match[2];
+        if (!originalText) continue;
+
+        const exactMatch = normalizedText === originalText;
+        const singlePhraseMatch =
+          originalText.split(/\s+/).length <= 3 &&
+          new RegExp(
+            `(^|\\s)${originalText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`,
+            "i",
+          ).test(normalizedText);
+
+        if (exactMatch || singlePhraseMatch) {
+          corrected = correctedLevel;
+          applied = true;
+        }
+      }
+
+      return { level: corrected, applied };
+    };
+
+    const serverRulesAllowCasualProfanity = /\b(allow|allowed|permit|permitted|okay|ok|fine)\b.{0,50}\b(profanity|swearing|cursing|banter|trash talk|trash-talk)\b/i.test(
+      req.rulesText || "",
+    );
+
+    const getSeverityFloor = (text: string, currentLevel: string) => {
+      if (serverRulesAllowCasualProfanity) return currentLevel;
+      const normalized = normalizeTrainingText(text);
+      const hasSevereProfanity =
+        /\b(fuck|fucker|motherfucker|bitch|bitches|cunt|cunts|asshole|assholes)\b/i.test(
+          normalized,
+        );
+      if (
+        hasSevereProfanity &&
+        severityRank[currentLevel] > severityRank.Safe &&
+        severityRank[currentLevel] < severityRank.Extreme
+      ) {
+        return "Extreme";
+      }
+      return currentLevel;
+    };
+
     const decisionList = messagesToProcess.map((msg) => {
       const msgIndex = messagesToProcess.indexOf(msg) + 1;
       const analysis = analysisArray.find(
@@ -8296,6 +9077,15 @@ ${escapeForPromptBlock(combinedContent)}
       lvl = lvl
         ? lvl.charAt(0).toUpperCase() + lvl.slice(1).toLowerCase()
         : "Safe";
+      const trainingCorrection = getExactTrainingSeverityCorrection(
+        msg.content,
+        lvl,
+      );
+      lvl = trainingCorrection.level;
+      if (!trainingCorrection.applied) {
+        lvl = getSeverityFloor(msg.content, lvl);
+      }
+      analysis.level = lvl;
 
       let isSafe = !lvl || ["Safe", "None", "Null"].includes(lvl);
       let conf =
@@ -8669,68 +9459,21 @@ ${escapeForPromptBlock(combinedContent)}
             }
           }
 
-          if (
-            isFirstToFlag &&
-            !wasAutoDeleted &&
-            (analysis.level === "Extreme" || analysis.level === "High")
-          ) {
-            const logChannelId = req.serverData?.logChannelId;
-            if (logChannelId) {
-              try {
-                const logChannel =
-                  msg.client.channels.cache.get(logChannelId) ||
-                  (await msg.client.channels
-                    .fetch(logChannelId)
-                    .catch(() => null));
-                if (logChannel && logChannel.isTextBased()) {
-                  const dashUrl = `${APP_URL}/moderation#queue`;
-                  await logChannel.send({
-                    embeds: [
-                      {
-                        title: "🚨 High-Severity Message Flagged",
-                        description: `A message requiring immediate review was flagged in <#${msg.channelId}>.`,
-                        color:
-                          analysis.level === "Extreme" ? 0xff0000 : 0xffa500,
-                        fields: [
-                          {
-                            name: "User",
-                            value: `<@${msg.author.id}> (${msg.author.username})`,
-                            inline: true,
-                          },
-                          {
-                            name: "Severity",
-                            value: analysis.level,
-                            inline: true,
-                          },
-                          { name: "Reasoning", value: analysis.reason },
-                          {
-                            name: "Content",
-                            value: `>>> ${msg.content.substring(0, 500)}${msg.content.length > 500 ? "..." : ""}`,
-                          },
-                        ],
-                        footer: getSentinLProtectedRawFooter(),
-                        timestamp: new Date().toISOString(),
-                      },
-                    ],
-                    components: [
-                      {
-                        type: 1,
-                        components: [
-                          {
-                            type: 2,
-                            style: 5,
-                            label: "Review in Dashboard",
-                            url: dashUrl,
-                          },
-                        ],
-                      },
-                    ],
-                  });
-                }
-              } catch (e) {
-                logger.error(e);
-              }
-            }
+          if (isFirstToFlag) {
+            await sendFlagLogNotification({
+              client: msg.client,
+              serverId: req.serverId,
+              logChannelId: req.serverData?.logChannelId,
+              flaggedMessageId: msg.id,
+              channelId: msg.channelId,
+              authorId: msg.author.id,
+              authorUsername: msg.author.username,
+              content: msg.content,
+              level: analysis.level,
+              reason: analysis.reason,
+              isPremium: Boolean(req.isPremium),
+              alreadyActioned: wasAutoDeleted,
+            });
           }
         } else if (
           decision.forceReviewOnly ||
@@ -8782,58 +9525,20 @@ ${escapeForPromptBlock(combinedContent)}
                 flaggedAt: FieldValue.serverTimestamp(),
               });
 
-              const logChannelId = req.serverData?.logChannelId;
-              if (logChannelId) {
-                try {
-                  const logChannel =
-                    msg.client.channels.cache.get(logChannelId) ||
-                    (await msg.client.channels
-                      .fetch(logChannelId)
-                      .catch(() => null));
-                  if (logChannel && logChannel.isTextBased()) {
-                    const dashUrl = `${APP_URL}/moderation#queue`;
-                    const safeText = msg.content.substring(0, 500);
-                    await logChannel.send({
-                      embeds: [
-                        {
-                          title: "Nuanced message needs review",
-                          description: `A message requiring moderator review was flagged in <#${msg.channelId}>.`,
-                          color: 0x808080,
-                          fields: [
-                            {
-                              name: "User",
-                              value: `<@${msg.author.id}> (${msg.author.username})`,
-                              inline: true,
-                            },
-                            { name: "Reasoning", value: analysis.reason },
-                            {
-                              name: "Content",
-                              value: `>>> ${safeText}${msg.content.length > 500 ? "..." : ""}`,
-                            },
-                          ],
-                          footer: getSentinLProtectedRawFooter(),
-                          timestamp: new Date().toISOString(),
-                        },
-                      ],
-                      components: [
-                        {
-                          type: 1,
-                          components: [
-                            {
-                              type: 2,
-                              style: 5,
-                              label: "Review in Dashboard",
-                              url: dashUrl,
-                            },
-                          ],
-                        },
-                      ],
-                    });
-                  }
-                } catch (e) {
-                  logger.error(e);
-                }
-              }
+              await sendFlagLogNotification({
+                client: msg.client,
+                serverId: req.serverId,
+                logChannelId: req.serverData?.logChannelId,
+                flaggedMessageId: msg.id,
+                channelId: msg.channelId,
+                authorId: msg.author.id,
+                authorUsername: msg.author.username,
+                content: msg.content,
+                level: analysis.level,
+                reason: analysis.reason,
+                isPremium: Boolean(req.isPremium),
+                reviewOnly: true,
+              });
             } catch (e: any) {
               if (e.code !== 6) logger.error(e);
             }

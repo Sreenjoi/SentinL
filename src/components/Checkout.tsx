@@ -17,15 +17,15 @@ export default function Checkout() {
 
   useEffect(() => {
     if (!serverId) {
-      toast("No Server ID provided.");
+      toast("No server selected. Go back to your dashboard and choose a server before upgrading.");
     }
   }, [serverId]);
 
   const handleSubscribe = async (plan: "pro_1" | "pro_3") => {
     const planName = plan === "pro_3" ? "SentinL Premium" : "SentinL Pro";
     const planDescription = plan === "pro_3"
-      ? `Upgrade server ${serverId} to Premium with up to 3 server slots.`
-      : `Upgrade server ${serverId} to Pro for 1 server.`;
+      ? "Upgrade your selected server to Premium with up to 3 server slots."
+      : "Upgrade your selected server to Pro.";
 
     if (!user) {
       toast.error("Please log in first.");
@@ -33,7 +33,7 @@ export default function Checkout() {
     }
     
     if (!serverId) {
-      toast("Missing Server ID in URL parameters.");
+      toast("No server selected. Go back to your dashboard and choose a server before upgrading.");
       return;
     }
 
@@ -43,7 +43,7 @@ export default function Checkout() {
         "https://checkout.razorpay.com/v1/checkout.js",
       );
       if (!isScriptLoaded) {
-        toast.error("Razorpay SDK failed to load. Are you online?");
+        toast.error("The payment window could not load. Check your connection or disable browser blockers, then try again.");
         setLoading(false);
         return;
       }
@@ -117,10 +117,10 @@ export default function Checkout() {
             if (verifyData.success) {
               navigate("/success");
             } else {
-              toast.error("Payment verification failed! " + verifyData?.error);
+              toast.error("We could not confirm your payment yet. If money was deducted, please contact support before trying again.");
             }
           } catch (err: any) {
-            toast.error("Error verifying payment: " + err.message);
+            toast.error("We could not confirm your payment yet. If money was deducted, please contact support before trying again.");
           }
         },
         prefill: {
@@ -134,7 +134,7 @@ export default function Checkout() {
       // @ts-ignore
       const RazorpayCtor = (window as any).Razorpay;
       if (typeof RazorpayCtor !== 'function') {
-        throw new Error("Razorpay SDK not loaded correctly (not a function).");
+        throw new Error("The payment window could not load.");
       }
       
       let rzp;
@@ -142,7 +142,7 @@ export default function Checkout() {
         rzp = new RazorpayCtor(options);
       } catch (e: any) {
         if (e.message?.includes('Illegal constructor')) {
-          throw new Error("Razorpay SDK initialization failed: Illegal constructor. This can happen if the script is blocked or modified by an extension.");
+          throw new Error("The payment window was blocked or modified by the browser.");
         }
         throw e;
       }
@@ -154,8 +154,7 @@ export default function Checkout() {
     } catch (error) {
       console.error("Error calling checkout endpoint:", error);
       toast(
-        "An error occurred. Please check your connection and try again: " +
-          (error instanceof Error ? error.message : String(error)),
+        "Something went wrong while starting checkout. Check your connection and try again.",
       );
     } finally {
       setLoading(false);
@@ -169,7 +168,7 @@ export default function Checkout() {
           Invalid URL
         </h1>
         <p className="text-text-secondary">
-          Missing server parameter in the URL.
+          Go back to your dashboard and choose a server before upgrading.
         </p>
       </div>
     );
@@ -179,10 +178,7 @@ export default function Checkout() {
     <div className="p-8 max-w-6xl mx-auto relative z-10 w-full animate-fade-in pb-24 lg:pb-8">
       <div className="mb-12 text-center max-w-2xl mx-auto">
         <h1 className="text-4xl md:text-5xl font-black text-on-surface mb-4 tracking-tight drop-shadow-sm">
-          Server{" "}
-          <span className="text-primary font-mono bg-primary/10 px-3 py-1 rounded-xl drop-shadow-none border border-primary/20">
-            {serverId}
-          </span>
+          Upgrade Your Server
         </h1>
         <p className="text-sm md:text-base font-bold text-text-secondary uppercase tracking-[0.2em]">
           Community Upgrade

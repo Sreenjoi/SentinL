@@ -100,7 +100,7 @@ export default function Pricing() {
         "https://checkout.razorpay.com/v1/checkout.js",
       );
       if (!isScriptLoaded) {
-        toast.error("Razorpay SDK failed to load. Are you online?");
+        toast.error("The payment window could not load. Check your connection or disable browser blockers, then try again.");
         setLoading(false);
         return;
       }
@@ -183,10 +183,10 @@ export default function Pricing() {
             if (verifyData.success) {
               navigate("/success");
             } else {
-              toast.error("Payment verification failed! " + verifyData?.error);
+              toast.error("We could not confirm your payment yet. If money was deducted, please contact support before trying again.");
             }
           } catch (err: any) {
-            toast.error("Error verifying payment: " + err.message);
+            toast.error("We could not confirm your payment yet. If money was deducted, please contact support before trying again.");
           }
         },
         prefill: {
@@ -200,7 +200,7 @@ export default function Pricing() {
       // @ts-ignore
       const RazorpayCtor = (window as any).Razorpay;
       if (typeof RazorpayCtor !== 'function') {
-        throw new Error("Razorpay SDK not loaded correctly (not a function).");
+        throw new Error("The payment window could not load.");
       }
       
       let rzp;
@@ -208,7 +208,7 @@ export default function Pricing() {
         rzp = new RazorpayCtor(options);
       } catch (e: any) {
         if (e.message?.includes('Illegal constructor')) {
-          throw new Error("Razorpay SDK initialization failed: Illegal constructor. This can happen if the script is blocked or modified by an extension.");
+          throw new Error("The payment window was blocked or modified by the browser.");
         }
         throw e;
       }
@@ -220,8 +220,7 @@ export default function Pricing() {
     } catch (error) {
       console.error("Error calling checkout endpoint:", error);
       toast(
-        "An error occurred. Please check your connection and try again: " +
-          (error instanceof Error ? error.message : String(error)),
+        "Something went wrong while starting checkout. Check your connection and try again.",
       );
     } finally {
       setLoading(false);
@@ -593,7 +592,7 @@ export default function Pricing() {
                 Depending on your selection, you are purchasing a Trial, Pro, or Premium 30-day access pass. Rates and features are subject to change as per our evolving policies.</p>
 
                 <p><strong>2. Fair Use & Rate Limits</strong><br/>
-                To ensure quality for all users, AI capabilities are subject to fair use limits. Excessive generation requests that jeopardize the service's stability will be throttled. You agree not to abuse or spam the API endpoints.</p>
+                To keep SentinL reliable for everyone, AI features are subject to fair use limits. Excessive or abusive requests may be slowed down or blocked.</p>
                 
                 <p><strong>3. Content Moderation Guidelines</strong><br/>
                 Your use of SentinL must not violate community safety guidelines. We reserve the right to suspend accounts that facilitate illegal content, severe harassment, or intentional evasion of safety systems.</p>

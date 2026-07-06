@@ -265,10 +265,7 @@ export function DiscordConnect({ userEmail }: { userEmail: string }) {
       }, 1000);
     } catch (err) {
       console.error(err);
-      toast.error(
-        "Error initiating Discord connection: " +
-          (err instanceof Error ? err.message : String(err)),
-      );
+      toast.error("Could not open Discord login. Please try again, and make sure popups are allowed.");
       setConnecting(false);
     }
   };
@@ -332,11 +329,10 @@ export function DiscordConnect({ userEmail }: { userEmail: string }) {
           <>
             <h3 className="text-xs font-black text-on-surface uppercase tracking-widest mb-2 flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-              Auth Portal
+              Connect Discord
             </h3>
             <p className="text-[11px] font-medium text-text-secondary mb-4 leading-relaxed">
-              Link your identity to the Discord ecosystem to activate monitoring
-              nodes.
+              Connect your Discord account so SentinL can find the servers you manage.
             </p>
           </>
         )}
@@ -495,7 +491,7 @@ export function ServerSelector() {
       toast.success("Server claimed successfully!");
     } catch (err: any) {
       console.error(err);
-      toast.error("Error claiming server: " + err.message);
+      toast.error("Could not claim this server. Make sure you have Manage Server permission and try again.");
     } finally {
       setClaiming(false);
     }

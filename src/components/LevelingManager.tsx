@@ -278,7 +278,7 @@ export default function LevelingManager() {
       toast.success("Setting updated.", { id: `${field}-toast`, duration: 2000 });
     } catch (err: any) {
       console.error(`Error toggling ${field}:`, err);
-      toast.error("Failed to update setting.", { id: `${field}-toast` });
+      toast.error("Could not save this change. Please try again.", { id: `${field}-toast` });
       setSettings(prev => ({ ...prev, [field]: !value }));
       updateBaseline((old: any[]) => {
         const s = { ...old[0], [field]: !value };
